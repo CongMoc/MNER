@@ -1,5 +1,6 @@
 import os
 import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import argparse
 
@@ -10,7 +11,7 @@ import torch
 import torch.nn.functional as F
 from modules.model_architecture.common import RobertaModel
 from transformers import AutoTokenizer,BertConfig, RobertaConfig
-from modules.model_architecture.EXCT import EXTCModel
+from modules.model_architecture.UMT_PixelCNN_external_context import UMT_PixelCNN
 from modules.resnet import resnet as resnet
 from modules.resnet.resnet_utils import myResnet
 from modules.datasets.dataset_externalcontext import convert_mm_examples_to_features,MNERProcessor
@@ -235,6 +236,10 @@ if args.task_name == "twitter2017":
 random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
+if n_gpu > 0:
+    torch.cuda.manual_seed_all(args.seed)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 if not args.do_train and not args.do_eval:
     raise ValueError("At least one of `do_train` or `do_eval` must be True.")
@@ -257,6 +262,129 @@ auxnum_labels = len(auxlabel_list)+1 # label 0 corresponds to padding, label in 
 
 start_label_id = processor.get_start_label_id()
 stop_label_id = processor.get_stop_label_id()
+
+trans_matrix = np.zeros((auxnum_labels,num_labels), dtype=float)
+if num_labels > 70:
+    trans_matrix[0,0]=1 # pad to pad
+    trans_matrix[1,1]=1 # O to O
+    trans_matrix[2,2]=0.25
+    trans_matrix[2,4]=0.25
+    trans_matrix[2,6]=0.25
+    trans_matrix[2,8]=0.25
+    trans_matrix[2,10]=0.25
+    trans_matrix[2,12]=0.25
+    trans_matrix[2,14]=0.25
+    trans_matrix[2,16]=0.25
+    trans_matrix[2,18]=0.25
+    trans_matrix[2,20]=0.25
+    trans_matrix[2,22]=0.25
+    trans_matrix[2,24]=0.25
+    trans_matrix[2,26]=0.25
+    trans_matrix[2,28]=0.25
+    trans_matrix[2,30]=0.25
+    trans_matrix[2,32]=0.25
+    trans_matrix[2,34]=0.25
+    trans_matrix[2,36]=0.25
+    trans_matrix[2,38]=0.25
+    trans_matrix[2,40]=0.25
+    trans_matrix[2,42]=0.25
+    trans_matrix[2,44]=0.25
+    trans_matrix[2,46]=0.25
+    trans_matrix[2,48]=0.25
+    trans_matrix[2,50]=0.25
+    trans_matrix[2,52]=0.25
+    trans_matrix[2,54]=0.25
+    trans_matrix[2,56]=0.25
+    trans_matrix[2,58]=0.25
+    trans_matrix[2,60]=0.25
+    trans_matrix[2,62]=0.25
+    trans_matrix[2,64]=0.25
+    trans_matrix[2,66]=0.25
+    trans_matrix[2,68]=0.25
+    trans_matrix[2,70]=0.25
+    trans_matrix[2,72]=0.25
+    trans_matrix[2,74]=0.25
+    trans_matrix[2,76]=0.25
+    trans_matrix[2,78]=0.25
+    trans_matrix[2,80]=0.25
+    trans_matrix[2,82]=0.25
+    trans_matrix[2,84]=0.25
+    trans_matrix[3,3]=0.25
+    trans_matrix[3,5]=0.25
+    trans_matrix[3,7]=0.25
+    trans_matrix[3,9]=0.25
+    trans_matrix[3,11]=0.25
+    trans_matrix[3,13]=0.25
+    trans_matrix[3,15]=0.25
+    trans_matrix[3,17]=0.25
+    trans_matrix[3,19]=0.25
+    trans_matrix[3,21]=0.25
+    trans_matrix[3,23]=0.25
+    trans_matrix[3,25]=0.25
+    trans_matrix[3,27]=0.25
+    trans_matrix[3,29]=0.25
+    trans_matrix[3,31]=0.25
+    trans_matrix[3,33]=0.25
+    trans_matrix[3,35]=0.25
+    trans_matrix[3,37]=0.25
+    trans_matrix[3,39]=0.25
+    trans_matrix[3,41]=0.25
+    trans_matrix[3,43]=0.25
+    trans_matrix[3,45]=0.25
+    trans_matrix[3,47]=0.25
+    trans_matrix[3,49]=0.25
+    trans_matrix[3,51]=0.25
+    trans_matrix[3,53]=0.25
+    trans_matrix[3,55]=0.25
+    trans_matrix[3,57]=0.25
+    trans_matrix[3,59]=0.25
+    trans_matrix[3,61]=0.25
+    trans_matrix[3,63]=0.25
+    trans_matrix[3,65]=0.25
+    trans_matrix[3,67]=0.25
+    trans_matrix[3,69]=0.25
+    trans_matrix[3,71]=0.25
+    trans_matrix[3,73]=0.25
+    trans_matrix[3,75]=0.25
+    trans_matrix[3,77]=0.25
+    trans_matrix[3,79]=0.25
+    trans_matrix[3,81]=0.25
+    trans_matrix[3,83]=0.25
+    trans_matrix[3,85]=0.25
+    trans_matrix[4,86]=1   # X to X
+    trans_matrix[5,87]=1   # [CLS] to [CLS]
+    trans_matrix[6,88]=1   # [SEP] to [SEP]
+else:
+    trans_matrix[0,0]=1 # pad to pad
+    trans_matrix[1,1]=1 # O to O
+    trans_matrix[2,2]=0.25 # B to B-MISC
+    trans_matrix[2,4]=0.25 # B to B-PER
+    trans_matrix[2,6]=0.25 # B to B-ORG
+    trans_matrix[2,8]=0.25 # B to B-LOC
+    trans_matrix[3,3]=0.25 # I to I-MISC
+    trans_matrix[3,5]=0.25 # I to I-PER
+    trans_matrix[3,7]=0.25 # I to I-ORG
+    trans_matrix[3,9]=0.25 # I to I-LOC
+    trans_matrix[4,10]=1   # X to X
+    trans_matrix[5,11]=1   # [CLS] to [CLS]
+    trans_matrix[6,12]=1   # [SEP] to [SEP]
+'''
+trans_matrix = np.zeros((num_labels, auxnum_labels), dtype=float)
+trans_matrix[0,0]=1 # pad to pad
+trans_matrix[1,1]=1 # O to O
+trans_matrix[2,2]=0.25 # B to B-MISC
+trans_matrix[2,4]=0.25 # B to B-PER
+trans_matrix[2,6]=0.25 # B to B-ORG
+trans_matrix[2,8]=0.25 # B to B-LOC
+trans_matrix[3,3]=0.25 # I to I-MISC
+trans_matrix[3,5]=0.25 # I to I-PER
+trans_matrix[3,7]=0.25 # I to I-ORG
+trans_matrix[3,9]=0.25 # I to I-LOC
+trans_matrix[4,10]=1   # X to X
+trans_matrix[5,11]=1   # [CLS] to [CLS]
+trans_matrix[6,12]=1   # [SEP] to [SEP]
+'''
+
 tokenizer = AutoTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
 train_examples = None
@@ -271,7 +399,7 @@ if args.do_train:
 if args.mm_model == 'MTCCMBert':
     config = RobertaConfig.from_pretrained(args.bert_model, cache_dir='cache')
     roberta_pretrained = RobertaModel.from_pretrained(args.bert_model, cache_dir='cache')
-    model = EXTCModel(config, layer_num1=args.layer_num1,
+    model = UMT_PixelCNN(config, layer_num1=args.layer_num1,
                                 layer_num2=args.layer_num2,
                                 layer_num3=args.layer_num3,
                                 num_labels_=num_labels, auxnum_labels = auxnum_labels)
@@ -506,6 +634,8 @@ if args.do_train:
 
             with torch.no_grad():
                 imgs_f, img_mean, img_att = encoder(img_feats)
+
+            trans_matrix = torch.tensor(trans_matrix).to(device)
             neg_log_likelihood = model(
                 input_ids_external=input_ids_external,
                 segment_ids_external=segment_ids_external,
@@ -513,6 +643,7 @@ if args.do_train:
                 added_attention_mask_external=added_input_mask_external, # Assuming this maps
                 visual_embeds_mean=img_mean, # From encoder
                 visual_embeds_att=img_att,   # From encoder
+                trans_matrix=trans_matrix,   # Predefined/calculated
                 added_attention_mask_origin=added_input_mask_origin, # From data loader
                 input_ids_origin=input_ids_origin, # From data loader
                 segment_ids_origin=segment_ids_origin, # From data loader
@@ -596,7 +727,25 @@ if args.do_train:
             with torch.no_grad():
                 # --- Encode image features ---
                 imgs_f, img_mean, img_att = encoder(img_feats) # Encoder processes img_feats
+
+                # --- Prepare arguments for model forward call ---
+                # Assuming trans_matrix, alpha, beta, theta, sigma, temp, temp_lamb are defined/calculated
+                # outside this loop (as they were in the training loop).
+                # image_decode: Assuming it might be image_ti_feat or derived from it,
+                # but since it's not used in the provided eval snippet for the model call,
+                # we set it to None or handle it as needed by your specific model.
+                # For now, following the original line: image_decode = None
                 image_decode = None # Clarify if this should be image_ti_feat or something else
+
+                # --- Call model forward (evaluation mode) ---
+                # Assuming the model's forward signature is something like:
+                # def forward(self, input_ids_external, segment_ids_external, input_mask_external,
+                #             added_attention_mask_external, visual_embeds_mean, visual_embeds_att,
+                #             trans_matrix, added_attention_mask_origin,
+                #             input_ids_origin=None, segment_ids_origin=None, input_mask_origin=None,
+                #             image_decode=None, alpha=None, temp=None, temp_lamb=None,
+                #             labels_external=None, auxlabels_external=None,
+                #             labels_origin=None, auxlabels_origin=None):
                 # We pass None for labels/auxlabels during evaluation.
                 predicted_label_seq_ids = model(
                     input_ids_external=input_ids_external,
@@ -605,6 +754,7 @@ if args.do_train:
                     added_attention_mask_external=added_input_mask_external, # Map name
                     visual_embeds_mean=img_mean, # From encoder
                     visual_embeds_att=img_att,   # From encoder
+                    trans_matrix=trans_matrix,   # Predefined/calculated
                     added_attention_mask_origin=added_input_mask_origin, # From data loader
                     input_ids_origin=input_ids_origin, # From data loader
                     segment_ids_origin=segment_ids_origin, # From data loader
@@ -718,7 +868,7 @@ if args.do_train:
 # loadmodel
 if args.mm_model == 'MTCCMBert':
     config = RobertaConfig.from_pretrained(args.bert_model, cache_dir='cache')
-    model = EXTCModel(config, layer_num1=args.layer_num1,
+    model = UMT_PixelCNN(config, layer_num1=args.layer_num1,
                                 layer_num2=args.layer_num2,
                                 layer_num3=args.layer_num3,
                                 num_labels_=num_labels, auxnum_labels = auxnum_labels)
@@ -771,6 +921,7 @@ if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0)
             all_img_feats, all_image_ti_feat, # img_feats for encoder, image_ti_feat
             all_added_input_mask_origin, # Added for model's added_attention_mask_origin if needed
             all_input_ids_origin, all_segment_ids_origin, all_input_mask_origin, # Origin inputs if needed
+            # Note: trans_matrix, alpha, beta, theta, sigma, temp, temp_lamb are NOT from data loader
             all_label_ids_external, all_auxlabel_ids_external, # External labels if needed (though not used in eval call)
             all_label_ids_origin, all_auxlabel_ids_origin # Origin labels if needed (though not used in eval call)
             # image_decode (often image_ti_feat) is handled during model call
@@ -823,10 +974,25 @@ if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0)
         # Let's assume image_decode = image_ti_feat for now. Adjust if your model expects None or something else.
         image_decode = image_ti_feat # Or image_decode = None if that's what the model expects during eval
 
+        # Ensure trans_matrix is on the correct device and defined
+        # trans_matrix = torch.tensor(trans_matrix).to(device) # Make sure trans_matrix variable is defined
+        trans_matrix_tensor = trans_matrix.to(device) # Assuming trans_matrix is already a tensor defined elsewhere
+
         with torch.no_grad():
             # --- Encode image features ---
             imgs_f, img_mean, img_att = encoder(img_feats) # Encoder processes img_feats
 
+            # --- Call model forward (evaluation mode) ---
+            # Pass arguments matching the model's forward signature.
+            # Assuming the model's forward signature is something like:
+            # def forward(self, input_ids_external, segment_ids_external, input_mask_external,
+            #             added_attention_mask_external, visual_embeds_mean, visual_embeds_att,
+            #             trans_matrix, added_attention_mask_origin,
+            #             input_ids_origin=None, segment_ids_origin=None, input_mask_origin=None,
+            #             image_decode=None, alpha=None, temp=None, temp_lamb=None,
+            #             labels_external=None, auxlabels_external=None,
+            #             labels_origin=None, auxlabels_origin=None):
+            # We pass None for labels/auxlabels during evaluation.
             predicted_label_seq_ids = model(
                 input_ids_external=input_ids_external,
                 segment_ids_external=segment_ids_external,
@@ -834,6 +1000,7 @@ if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0)
                 added_attention_mask_external=added_input_mask_external, # Map name
                 visual_embeds_mean=img_mean, # From encoder
                 visual_embeds_att=img_att,   # From encoder
+                trans_matrix=trans_matrix_tensor, # Predefined/calculated tensor on device
                 added_attention_mask_origin=added_input_mask_origin, # From data loader
                 input_ids_origin=input_ids_origin, # From data loader (if used by model)
                 segment_ids_origin=segment_ids_origin, # From data loader (if used by model)

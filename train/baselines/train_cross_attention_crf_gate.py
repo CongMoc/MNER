@@ -1,5 +1,6 @@
 import os
 import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import argparse
 
@@ -9,7 +10,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from transformers import AutoTokenizer,BertConfig
-from modules.model_architecture.roberta_softmax_gate_multimodal import RobertaSoftmaxGateMultimodal
+from modules.model_architecture.roberta_crf_gate_multimodal import RobertaCRFGateMultimodal
 from modules.resnet import resnet as resnet
 from modules.resnet.resnet_utils import myResnet
 from modules.datasets.dataset_roberta import convert_mm_examples_to_features,MNERProcessor
@@ -206,6 +207,10 @@ if args.task_name == "twitter2017":
 random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
+if n_gpu > 0:
+    torch.cuda.manual_seed_all(args.seed)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 if not args.do_train and not args.do_eval:
     raise ValueError("At least one of `do_train` or `do_eval` must be True.")
@@ -240,7 +245,7 @@ if args.do_train:
         num_train_optimization_steps = num_train_optimization_steps // torch.distributed.get_world_size()
 
 if args.mm_model == 'MTCCMBert':
-    model = RobertaSoftmaxGateMultimodal.from_pretrained(args.bert_model,
+    model = RobertaCRFGateMultimodal.from_pretrained(args.bert_model,
                                                                     cache_dir=args.cache_dir, layer_num1=args.layer_num1,
                                                                     layer_num2=args.layer_num2,
                                                                     layer_num3=args.layer_num3,
@@ -427,7 +432,7 @@ if args.do_train:
                 imgs_f, img_mean, img_att = encoder(img_feats)
                 predicted_label_seq_ids = model(input_ids, segment_ids, input_mask, added_input_mask,imgs_f, img_att)
 
-            logits = np.argmax(predicted_label_seq_ids.cpu().numpy(), axis=2).tolist()
+            logits = predicted_label_seq_ids
             label_ids = label_ids.to('cpu').numpy()
             input_mask = input_mask.to('cpu').numpy()
             for i, mask in enumerate(input_mask):
@@ -491,7 +496,7 @@ if args.do_train:
 
 # loadmodel
 if args.mm_model == 'MTCCMBert':
-    model = RobertaSoftmaxGateMultimodal.from_pretrained(args.bert_model, layer_num1=args.layer_num1, layer_num2=args.layer_num2,
+    model = RobertaCRFGateMultimodal.from_pretrained(args.bert_model, layer_num1=args.layer_num1, layer_num2=args.layer_num2,
                                                     layer_num3=args.layer_num3, num_labels_=num_labels)
     model.load_state_dict(torch.load(output_model_file))
     model.to(device)
@@ -544,7 +549,7 @@ if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0)
             imgs_f, img_mean, img_att = encoder(img_feats)
             predicted_label_seq_ids = model(input_ids, segment_ids, input_mask, added_input_mask,imgs_f, img_att)
 
-        logits = np.argmax(predicted_label_seq_ids.cpu().numpy(), axis=2).tolist()
+        logits = predicted_label_seq_ids
         label_ids = label_ids.to('cpu').numpy()
         input_mask = input_mask.to('cpu').numpy()
         for i, mask in enumerate(input_mask):

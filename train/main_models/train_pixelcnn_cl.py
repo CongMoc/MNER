@@ -1,6 +1,7 @@
 import os
 import sys
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import argparse
 
 import logging
@@ -8,14 +9,14 @@ import random
 import numpy as np
 import torch
 import torch.nn.functional as F
+from transformers import AutoTokenizer, RobertaConfig
 from modules.model_architecture.common import RobertaModel
-from transformers import AutoTokenizer,BertConfig, RobertaConfig
-from modules.model_architecture.UMT_PixelCNN_woCL import UMT_PixelCNN
+from modules.model_architecture.UMT_PixelCNN import UMT_PixelCNN
 from modules.resnet import resnet as resnet
 from modules.resnet.resnet_utils import myResnet
 from modules.datasets.dataset_roberta_main import convert_mm_examples_to_features,MNERProcessor
 from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
-                              TensorDataset)                        
+                              TensorDataset)
 from pytorch_pretrained_bert.optimization import BertAdam,warmup_linear
 from ner_evaluate import evaluate_each_class
 from seqeval.metrics import classification_report
@@ -182,7 +183,6 @@ parser.add_argument('--fine_tune_cnn', action='store_true', help='fine tune pre-
 parser.add_argument('--resnet_root', default='./out_res', help='path the pre-trained cnn models')
 parser.add_argument('--crop_size', type=int, default=224, help='crop size of image')
 parser.add_argument('--path_image', default='./IJCAI2019_data/twitter2017_images/', help='path to images')
-# parser.add_argument('--mm_model', default='TomBert', help='model name') #
 parser.add_argument('--server_ip', type=str, default='', help="Can be used for distant debugging.")
 parser.add_argument('--server_port', type=str, default='', help="Can be used for distant debugging.")
 args = parser.parse_args()
@@ -218,7 +218,7 @@ else:
 logger.info("device: {} n_gpu: {}, distributed training: {}, 16-bits training: {}".format(
     device, n_gpu, bool(args.local_rank != -1), args.fp16))
 
-if args.gradient_accumulation_steps < 1:
+if args.gradient_accumulation_steps < 1 or args.train_batch_size < args.gradient_accumulation_steps:
     raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
         args.gradient_accumulation_steps))
 
@@ -235,6 +235,10 @@ if args.task_name == "twitter2017":
 random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
+if n_gpu > 0:
+    torch.cuda.manual_seed_all(args.seed)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 if not args.do_train and not args.do_eval:
     raise ValueError("At least one of `do_train` or `do_eval` must be True.")
@@ -391,6 +395,7 @@ if args.do_train:
     if args.local_rank != -1:
         num_train_optimization_steps = num_train_optimization_steps // torch.distributed.get_world_size()
 
+
 if args.mm_model == 'MTCCMBert':
     config = RobertaConfig.from_pretrained(args.bert_model, cache_dir='cache')
     roberta_pretrained = RobertaModel.from_pretrained(args.bert_model, cache_dir='cache')
@@ -406,10 +411,12 @@ net = getattr(resnet, 'resnet152')()
 net.load_state_dict(torch.load(os.path.join(args.resnet_root, 'resnet152.pth'), weights_only=False))
 encoder = myResnet(net, args.fine_tune_cnn, device)
 
-if args.fp16:
-    model.half()
-    encoder.half()
+# if args.fp16:
+#     model.half()
+#     encoder.half()
 model.to(device)
+
+
 encoder.to(device)
 if args.local_rank != -1:
     try:
@@ -586,7 +593,6 @@ if args.do_train:
                 optimizer.backward(neg_log_likelihood)
             else:
                 neg_log_likelihood.backward()
-
             tr_loss += neg_log_likelihood.item()
             nb_tr_examples += input_ids.size(0)
             nb_tr_steps += 1
@@ -687,6 +693,8 @@ if args.do_train:
             model_config = {"bert_model": args.bert_model,"best_epoch": best_dev_epoch,"max_f1": max_dev_f1, "do_lower": args.do_lower_case,
                             "max_seq_length": args.max_seq_length, "num_labels": len(label_list) + 1,
                             "label_map": label_map}
+            
+            logger.info("******************SAVE NEW MODEL WEIGHT*********************")
             json.dump(model_config, open(os.path.join(args.output_dir, "model_config.json"), "w"))
             max_dev_f1 = F_score_dev
             best_dev_epoch = train_idx
@@ -707,8 +715,7 @@ if args.mm_model == 'MTCCMBert':
     model.to(device)
     encoder_state_dict = torch.load(output_encoder_file)
     encoder.load_state_dict(encoder_state_dict)
-    encoder.to(device)                        
-    pass               
+    encoder.to(device)
 else:
     print('please define your MNER Model')
 

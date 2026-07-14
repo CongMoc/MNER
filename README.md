@@ -45,7 +45,7 @@ resnet_root="modules/resnet"
 cache_dir="cache"
 max_seq_length=256
 
-python train_umt_pixelcnn_fixedlr.py \
+python train/main_models/train_pixelcnn_cl.py \
     --do_train \
     --do_eval \
     --output_dir train_umt_pixelcnn_fixedlr_2016_beta${beta}_theta${theta}_sigma${sigma}_lr${learning_rate}_fixcrf \
@@ -90,7 +90,7 @@ resnet_root="modules/resnet"
 cache_dir="cache"
 max_seq_length=256
 
-python train_umt_pixelcnn_fixedlr.py \
+python train/main_models/train_pixelcnn_cl.py \
     --do_train \
     --do_eval \
     --output_dir train_umt_pixelcnn_fixedlr_2018_beta${beta}_theta${theta}_sigma${sigma}_lr${learning_rate} \
@@ -135,7 +135,7 @@ resnet_root="modules/resnet"
 cache_dir="cache"
 max_seq_length=256
 
-python train_umt.py \
+python train/baselines/train_umt.py \
     --do_train \
     --do_eval \
     --output_dir train_umt_2021_beta${beta}_theta${theta}_sigma${sigma}_lr${learning_rate} \
@@ -273,7 +273,7 @@ resnet_root="modules/resnet"
 cache_dir="cache"
 max_seq_length=256
 
-python train_umt_pixelcnn_fixedlr.py \
+python train/main_models/train_pixelcnn_cl.py \
     --do_train \
     --do_eval \
     --output_dir $_beta${beta}_theta${theta}_sigma${sigma}_lr${learning_rate} \
@@ -318,7 +318,7 @@ resnet_root="modules/resnet"
 cache_dir="cache"
 max_seq_length=256
 
-python train_umt_pixelcnn_fixedlr.py \
+python train/main_models/train_pixelcnn_cl.py \
     --do_train \
     --do_eval \
     --output_dir $_beta${beta}_theta${theta}_sigma${sigma}_lr${learning_rate} \
@@ -361,7 +361,7 @@ resnet_root="modules/resnet"
 cache_dir="cache"
 max_seq_length=256
 
-python train_umt_pixelcnn_fixedlr_wo_CL.py \
+python train/ablations/train_pixelcnn_wo_cl.py \
     --do_train \
     --do_eval \
     --output_dir $_beta${beta}_theta${theta}_sigma${sigma}_lr${learning_rate} \

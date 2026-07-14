@@ -159,12 +159,9 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-vlsp2021
+sample_data/*
 data/*
 cache/*
 resnet152.pth
 train_bert_model
 models
-0.5_theta0.05_sigma0.005_lr3e-5
-train_umt_pixelcnn_fixedlr_2021_beta0.5_theta0.05_sigma0.005_lr3e-5
-train_umt_pixelcnn_fixedlr_wo_CL_2021_beta0.5_theta0.05_sigma0.005_lr3e-5

@@ -1,5 +1,6 @@
 import os
 import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import argparse
 
@@ -9,10 +10,10 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from transformers import AutoTokenizer,BertConfig
-from modules.model_architecture.bert_base.UMT_PixelCNN import UMT_PixelCNN
+from modules.model_architecture.roberta_softmax_multimodal import RobertaSoftmaxMultimodal
 from modules.resnet import resnet as resnet
 from modules.resnet.resnet_utils import myResnet
-from modules.datasets.bert_base.dataset_roberta_main import convert_mm_examples_to_features,MNERProcessor
+from modules.datasets.dataset_roberta import convert_mm_examples_to_features,MNERProcessor
 from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
                               TensorDataset)                        
 from pytorch_pretrained_bert.optimization import BertAdam,warmup_linear
@@ -30,38 +31,10 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message
 logger = logging.getLogger(__name__)
 parser = argparse.ArgumentParser()
 ## Required parameters
-parser.add_argument("--alpha",
-                    default=0.5,
-                    type=float,
-                    help="parameter for Conversion Matrix")
-
-parser.add_argument("--beta",
-                    default=0.5,
-                    type=float,
-                    help="parameter for aux loss")
-
-
-parser.add_argument("--sigma",
-                    default=0.005,
-                    type=float,
-                    help="parameter for PixelCNN loss")
-
-
-parser.add_argument("--theta",
-                    default=0.05,
-                    type=float,
-                    help="parameter for CL loss")
-
-
-parser.add_argument("--weight_decay_pixelcnn",
-                    default=0.0,
-                    type=float,
-                    help="weight_decay for PixelCNN++")
-
-parser.add_argument("--lr_pixelcnn",
-                    default=0.001,
-                    type=float,
-                    help="The initial learning rate for PixelCNN++")
+parser.add_argument("--negative_rate",
+                    default=16,
+                    type=int,
+                    help="the negative samples rate")
 
 parser.add_argument('--lamb',
                     default=0.62,
@@ -234,6 +207,10 @@ if args.task_name == "twitter2017":
 random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
+if n_gpu > 0:
+    torch.cuda.manual_seed_all(args.seed)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 if not args.do_train and not args.do_eval:
     raise ValueError("At least one of `do_train` or `do_eval` must be True.")
@@ -252,134 +229,9 @@ processor = processors[task_name]()
 label_list = processor.get_labels()
 auxlabel_list = processor.get_auxlabels()
 num_labels = len(label_list) + 1  # label 0 corresponds to padding, label in label_list starts from 1
-auxnum_labels = len(auxlabel_list)+1 # label 0 corresponds to padding, label in label_list starts from 1
 
 start_label_id = processor.get_start_label_id()
 stop_label_id = processor.get_stop_label_id()
-
-
-
-trans_matrix = np.zeros((auxnum_labels,num_labels), dtype=float)
-if num_labels > 70:
-    trans_matrix[0,0]=1 # pad to pad
-    trans_matrix[1,1]=1 # O to O
-    trans_matrix[2,2]=0.25
-    trans_matrix[2,4]=0.25
-    trans_matrix[2,6]=0.25
-    trans_matrix[2,8]=0.25
-    trans_matrix[2,10]=0.25
-    trans_matrix[2,12]=0.25
-    trans_matrix[2,14]=0.25
-    trans_matrix[2,16]=0.25
-    trans_matrix[2,18]=0.25
-    trans_matrix[2,20]=0.25
-    trans_matrix[2,22]=0.25
-    trans_matrix[2,24]=0.25
-    trans_matrix[2,26]=0.25
-    trans_matrix[2,28]=0.25
-    trans_matrix[2,30]=0.25
-    trans_matrix[2,32]=0.25
-    trans_matrix[2,34]=0.25
-    trans_matrix[2,36]=0.25
-    trans_matrix[2,38]=0.25
-    trans_matrix[2,40]=0.25
-    trans_matrix[2,42]=0.25
-    trans_matrix[2,44]=0.25
-    trans_matrix[2,46]=0.25
-    trans_matrix[2,48]=0.25
-    trans_matrix[2,50]=0.25
-    trans_matrix[2,52]=0.25
-    trans_matrix[2,54]=0.25
-    trans_matrix[2,56]=0.25
-    trans_matrix[2,58]=0.25
-    trans_matrix[2,60]=0.25
-    trans_matrix[2,62]=0.25
-    trans_matrix[2,64]=0.25
-    trans_matrix[2,66]=0.25
-    trans_matrix[2,68]=0.25
-    trans_matrix[2,70]=0.25
-    trans_matrix[2,72]=0.25
-    trans_matrix[2,74]=0.25
-    trans_matrix[2,76]=0.25
-    trans_matrix[2,78]=0.25
-    trans_matrix[2,80]=0.25
-    trans_matrix[2,82]=0.25
-    trans_matrix[2,84]=0.25
-    trans_matrix[3,3]=0.25
-    trans_matrix[3,5]=0.25
-    trans_matrix[3,7]=0.25
-    trans_matrix[3,9]=0.25
-    trans_matrix[3,11]=0.25
-    trans_matrix[3,13]=0.25
-    trans_matrix[3,15]=0.25
-    trans_matrix[3,17]=0.25
-    trans_matrix[3,19]=0.25
-    trans_matrix[3,21]=0.25
-    trans_matrix[3,23]=0.25
-    trans_matrix[3,25]=0.25
-    trans_matrix[3,27]=0.25
-    trans_matrix[3,29]=0.25
-    trans_matrix[3,31]=0.25
-    trans_matrix[3,33]=0.25
-    trans_matrix[3,35]=0.25
-    trans_matrix[3,37]=0.25
-    trans_matrix[3,39]=0.25
-    trans_matrix[3,41]=0.25
-    trans_matrix[3,43]=0.25
-    trans_matrix[3,45]=0.25
-    trans_matrix[3,47]=0.25
-    trans_matrix[3,49]=0.25
-    trans_matrix[3,51]=0.25
-    trans_matrix[3,53]=0.25
-    trans_matrix[3,55]=0.25
-    trans_matrix[3,57]=0.25
-    trans_matrix[3,59]=0.25
-    trans_matrix[3,61]=0.25
-    trans_matrix[3,63]=0.25
-    trans_matrix[3,65]=0.25
-    trans_matrix[3,67]=0.25
-    trans_matrix[3,69]=0.25
-    trans_matrix[3,71]=0.25
-    trans_matrix[3,73]=0.25
-    trans_matrix[3,75]=0.25
-    trans_matrix[3,77]=0.25
-    trans_matrix[3,79]=0.25
-    trans_matrix[3,81]=0.25
-    trans_matrix[3,83]=0.25
-    trans_matrix[3,85]=0.25
-    trans_matrix[4,86]=1   # X to X
-    trans_matrix[5,87]=1   # [CLS] to [CLS]
-    trans_matrix[6,88]=1   # [SEP] to [SEP]
-else:
-    trans_matrix[0,0]=1 # pad to pad
-    trans_matrix[1,1]=1 # O to O
-    trans_matrix[2,2]=0.25 # B to B-MISC
-    trans_matrix[2,4]=0.25 # B to B-PER
-    trans_matrix[2,6]=0.25 # B to B-ORG
-    trans_matrix[2,8]=0.25 # B to B-LOC
-    trans_matrix[3,3]=0.25 # I to I-MISC
-    trans_matrix[3,5]=0.25 # I to I-PER
-    trans_matrix[3,7]=0.25 # I to I-ORG
-    trans_matrix[3,9]=0.25 # I to I-LOC
-    trans_matrix[4,10]=1   # X to X
-    trans_matrix[5,11]=1   # [CLS] to [CLS]
-    trans_matrix[6,12]=1   # [SEP] to [SEP]
-'''
-trans_matrix = np.zeros((num_labels, auxnum_labels), dtype=float)
-trans_matrix[0,0]=1 # pad to pad
-trans_matrix[1,1]=1 # O to O
-trans_matrix[2,2]=0.25 # B to B-MISC
-trans_matrix[2,4]=0.25 # B to B-PER
-trans_matrix[2,6]=0.25 # B to B-ORG
-trans_matrix[2,8]=0.25 # B to B-LOC
-trans_matrix[3,3]=0.25 # I to I-MISC
-trans_matrix[3,5]=0.25 # I to I-PER
-trans_matrix[3,7]=0.25 # I to I-ORG
-trans_matrix[3,9]=0.25 # I to I-LOC
-trans_matrix[4,10]=1   # X to X
-trans_matrix[5,11]=1   # [CLS] to [CLS]
-trans_matrix[6,12]=1   # [SEP] to [SEP]
-'''
 
 tokenizer = AutoTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
@@ -393,11 +245,11 @@ if args.do_train:
         num_train_optimization_steps = num_train_optimization_steps // torch.distributed.get_world_size()
 
 if args.mm_model == 'MTCCMBert':
-    model = UMT_PixelCNN.from_pretrained(args.bert_model,
-                                cache_dir=args.cache_dir, layer_num1=args.layer_num1,
-                                layer_num2=args.layer_num2,
-                                layer_num3=args.layer_num3,
-                                num_labels_=num_labels, auxnum_labels = auxnum_labels)
+    model = RobertaSoftmaxMultimodal.from_pretrained(args.bert_model,
+                                                                    cache_dir=args.cache_dir, layer_num1=args.layer_num1,
+                                                                    layer_num2=args.layer_num2,
+                                                                    layer_num3=args.layer_num3,
+                                                                    num_labels_=num_labels)
 else:
     print('please define your MNER Model')
 
@@ -425,13 +277,9 @@ elif n_gpu > 1:
 
 param_optimizer = list(model.named_parameters())
 no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
-
-weight_decay_pixelcnn = args.weight_decay_pixelcnn
 optimizer_grouped_parameters = [
-    {'params': [p for n, p in param_optimizer if not any(nd in n for nd in ['image_decoder']) and not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
-    {'params': [p for n, p in param_optimizer if not any(nd in n for nd in ['image_decoder']) and any(nd in n for nd in no_decay)], 'weight_decay': 0.0},
-    # {'lr' : 0.001, 'params': [p for n, p in param_optimizer if any(nd in n for nd in ['image_decoder'])], 'weight_decay': 0.00005}
-    {'lr' : 0.001, 'params': [p for n, p in param_optimizer if any(nd in n for nd in ['image_decoder'])], 'weight_decay': weight_decay_pixelcnn}
+    {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
+    {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
 ]
 
 if args.fp16:
@@ -451,6 +299,9 @@ if args.fp16:
     else:
         optimizer = FP16_Optimizer(optimizer, static_loss_scale=args.loss_scale)
 
+
+
+
 else:
     optimizer = BertAdam(optimizer_grouped_parameters,
                             lr=args.learning_rate,
@@ -469,10 +320,6 @@ output_encoder_file = os.path.join(args.output_dir, "pytorch_encoder.bin")
 temp = args.temp
 temp_lamb = args.temp_lamb
 lamb = args.lamb
-alpha = args.alpha
-beta = args.beta
-theta = args.theta
-sigma = args.sigma
 
 
 if args.do_train:
@@ -483,11 +330,9 @@ if args.do_train:
     all_added_input_mask = torch.tensor([f.added_input_mask for f in train_features], dtype=torch.long)
     all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
     all_img_feats = torch.stack([f.img_feat for f in train_features])
-    all_image_ti_feat = torch.stack([f.img_ti_feat for f in train_features])
     all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
-    all_auxlabel_ids = torch.tensor([f.auxlabel_id for f in train_features], dtype=torch.long)
     train_data = TensorDataset(all_input_ids, all_input_mask, all_added_input_mask, \
-                                all_segment_ids, all_img_feats, all_image_ti_feat, all_label_ids,all_auxlabel_ids)
+                                all_segment_ids, all_img_feats, all_label_ids)
     if args.local_rank == -1:
         train_sampler = RandomSampler(train_data)
     else:
@@ -503,11 +348,10 @@ if args.do_train:
     all_added_input_mask = torch.tensor([f.added_input_mask for f in dev_eval_features], dtype=torch.long)
     all_segment_ids = torch.tensor([f.segment_ids for f in dev_eval_features], dtype=torch.long)
     all_img_feats = torch.stack([f.img_feat for f in dev_eval_features])
-    all_image_ti_feat = torch.stack([f.img_ti_feat for f in dev_eval_features])
     all_label_ids = torch.tensor([f.label_id for f in dev_eval_features], dtype=torch.long)
-    all_auxlabel_ids = torch.tensor([f.auxlabel_id for f in dev_eval_features], dtype=torch.long)
+
     dev_eval_data = TensorDataset(all_input_ids, all_input_mask, all_added_input_mask, all_segment_ids,
-                                    all_img_feats, all_image_ti_feat, all_label_ids, all_auxlabel_ids)
+                                    all_img_feats, all_label_ids)
     # Run prediction for full data
     dev_eval_sampler = SequentialSampler(dev_eval_data)
     dev_eval_dataloader = DataLoader(dev_eval_data, sampler=dev_eval_sampler, batch_size=args.eval_batch_size)
@@ -527,13 +371,12 @@ if args.do_train:
         nb_tr_examples, nb_tr_steps = 0, 0
         for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
             batch = tuple(t.to(device) for t in batch)
-            input_ids, input_mask, added_input_mask, segment_ids, img_feats, image_ti_feat, label_ids, auxlabel_ids = batch
+            input_ids, input_mask, added_input_mask, segment_ids, img_feats, label_ids = batch
             with torch.no_grad():
                 imgs_f, img_mean, img_att = encoder(img_feats)
 
-            trans_matrix = torch.tensor(trans_matrix).to(device)
             neg_log_likelihood = model(input_ids, segment_ids, input_mask, added_input_mask,
-                                        imgs_f, img_att, trans_matrix, image_ti_feat, alpha, beta, theta, sigma, temp, temp_lamb, label_ids, auxlabel_ids)
+                                        imgs_f, img_att,label_ids)
 
             if n_gpu > 1:
                 neg_log_likelihood = neg_log_likelihood.mean()  # mean() to average on multi-gpu.
@@ -575,7 +418,7 @@ if args.do_train:
         y_pred_idx = []
         label_map = {i: label for i, label in enumerate(label_list, 1)}
         label_map[0] = "<pad>"
-        for input_ids, input_mask, added_input_mask, segment_ids, img_feats, image_ti_feat, label_ids, auxlabel_ids in tqdm(
+        for input_ids, input_mask, added_input_mask, segment_ids, img_feats, label_ids in tqdm(
                 dev_eval_dataloader,
                 desc="Evaluating"):
             input_ids = input_ids.to(device)
@@ -584,13 +427,12 @@ if args.do_train:
             segment_ids = segment_ids.to(device)
             img_feats = img_feats.to(device)
             label_ids = label_ids.to(device)
-            auxlabel_ids = auxlabel_ids.to(device)
-            image_decode = None
+
             with torch.no_grad():
                 imgs_f, img_mean, img_att = encoder(img_feats)
-                predicted_label_seq_ids = model(input_ids, segment_ids, input_mask, added_input_mask, imgs_f, img_att, trans_matrix, image_decode, alpha, beta, theta, sigma, temp = temp, temp_lamb = temp_lamb, labels=None, auxlabels=None)
+                predicted_label_seq_ids = model(input_ids, segment_ids, input_mask, added_input_mask,imgs_f, img_att)
 
-            logits = predicted_label_seq_ids
+            logits = np.argmax(predicted_label_seq_ids.cpu().numpy(), axis=2).tolist()
             label_ids = label_ids.to('cpu').numpy()
             input_mask = input_mask.to('cpu').numpy()
             for i, mask in enumerate(input_mask):
@@ -640,25 +482,22 @@ if args.do_train:
             with open(output_config_file, 'w') as f:
                 f.write(model_to_save.config.to_json_string())
             label_map = {i: label for i, label in enumerate(label_list, 1)}
-            model_config = {"bert_model": args.bert_model,"best_epoch": best_dev_epoch,"max_f1": max_dev_f1, "do_lower": args.do_lower_case,
+            model_config = {"bert_model": args.bert_model, "do_lower": args.do_lower_case,
                             "max_seq_length": args.max_seq_length, "num_labels": len(label_list) + 1,
                             "label_map": label_map}
             json.dump(model_config, open(os.path.join(args.output_dir, "model_config.json"), "w"))
             max_dev_f1 = F_score_dev
             best_dev_epoch = train_idx
 
-    logger.info("**************************************************")
-    logger.info("The best epoch on the dev set: %s", best_dev_epoch)
-    logger.info("The best Overall-F1 score on the dev set: %s", max_dev_f1)
-    logger.info('\n')
+    print("**************************************************")
+    print("The best epoch on the dev set: ", best_dev_epoch)
+    print("The best Overall-F1 score on the dev set: ", max_dev_f1)
+    print('\n')
 
 # loadmodel
 if args.mm_model == 'MTCCMBert':
-    model = UMT_PixelCNN.from_pretrained(args.bert_model,
-                                cache_dir=args.cache_dir, layer_num1=args.layer_num1,
-                                layer_num2=args.layer_num2,
-                                layer_num3=args.layer_num3,
-                                num_labels_=num_labels, auxnum_labels = auxnum_labels)
+    model = RobertaSoftmaxMultimodal.from_pretrained(args.bert_model, layer_num1=args.layer_num1, layer_num2=args.layer_num2,
+                                                    layer_num3=args.layer_num3, num_labels_=num_labels)
     model.load_state_dict(torch.load(output_model_file))
     model.to(device)
     encoder_state_dict = torch.load(output_encoder_file)
@@ -679,12 +518,10 @@ if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0)
     all_added_input_mask = torch.tensor([f.added_input_mask for f in eval_features], dtype=torch.long)
     all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
     all_img_feats = torch.stack([f.img_feat for f in eval_features])
-    all_image_ti_feat = torch.stack([f.img_ti_feat for f in eval_features])
     all_label_ids = torch.tensor([f.label_id for f in eval_features], dtype=torch.long)
-    all_auxlabel_ids = torch.tensor([f.auxlabel_id for f in eval_features], dtype=torch.long)
 
-    eval_data = TensorDataset(all_input_ids, all_input_mask, all_added_input_mask, all_segment_ids, all_img_feats, all_image_ti_feat,
-                                all_label_ids,all_auxlabel_ids)
+    eval_data = TensorDataset(all_input_ids, all_input_mask, all_added_input_mask, all_segment_ids, all_img_feats,
+                                all_label_ids)
     # Run prediction for full data
     eval_sampler = SequentialSampler(eval_data)
     eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
@@ -698,7 +535,7 @@ if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0)
     y_pred_idx = []
     label_map = {i: label for i, label in enumerate(label_list, 1)}
     label_map[0] = "<pad>"
-    for input_ids, input_mask, added_input_mask, segment_ids, img_feats, image_ti_feat, label_ids, auxlabel_ids in tqdm(
+    for input_ids, input_mask, added_input_mask, segment_ids, img_feats, label_ids in tqdm(
             eval_dataloader, desc="Evaluating"):
         input_ids = input_ids.to(device)
         input_mask = input_mask.to(device)
@@ -706,15 +543,13 @@ if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0)
         segment_ids = segment_ids.to(device)
         img_feats = img_feats.to(device)
         label_ids = label_ids.to(device)
-        auxlabel_ids = auxlabel_ids.to(device)
 
-        image_decode = None
-        trans_matrix = torch.tensor(trans_matrix).to(device)
+
         with torch.no_grad():
             imgs_f, img_mean, img_att = encoder(img_feats)
-            predicted_label_seq_ids = model(input_ids, segment_ids, input_mask, added_input_mask, imgs_f, img_att, trans_matrix, image_decode, alpha, beta, theta, sigma, temp = temp, temp_lamb = temp_lamb, labels=None, auxlabels=None)
+            predicted_label_seq_ids = model(input_ids, segment_ids, input_mask, added_input_mask,imgs_f, img_att)
 
-        logits = predicted_label_seq_ids
+        logits = np.argmax(predicted_label_seq_ids.cpu().numpy(), axis=2).tolist()
         label_ids = label_ids.to('cpu').numpy()
         input_mask = input_mask.to('cpu').numpy()
         for i, mask in enumerate(input_mask):
