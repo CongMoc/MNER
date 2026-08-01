@@ -8,10 +8,11 @@ Toàn bộ script training đã được sắp xếp lại theo vai trò, thay c
 
 ```
 train/
-├── main_models/            # 2 model chính đề xuất trong bài
-│   ├── train_pixelcnn_cl.py         # Model 1: UMT + PixelCNN (image reconstruction) + Contrastive Loss
-│   ├── train_pixelcnn_cl_mbert.py   # Model 1, backbone mBERT (biến thể BERT-base thay vì Roberta)
-│   └── train_external_context.py    # Model 2: Model 1 + External Context (retrieval + re-ranking)
+├── without_external_context/  # Model 1: KHÔNG có nhánh External Context (Ảnh 1)
+│   ├── train_pixelcnn_cl.py         # UMT + PixelCNN (image reconstruction) + Contrastive Loss
+│   └── train_pixelcnn_cl_mbert.py   # Bản trên, backbone mBERT (BertModel/BertConfig thay vì Roberta)
+├── external_context/          # Model 2: CÓ nhánh External Context x̃ (Ảnh 2)
+│   └── train_external_context.py    # Model 1 + External Context (retrieval + re-ranking, xem CẢNH BÁO bên dưới)
 ├── ablations/               # Bỏ bớt 1 thành phần của Model 1 để đo đóng góp từng phần
 │   └── train_pixelcnn_wo_cl.py      # Model 1 nhưng bỏ Contrastive Loss
 ├── baselines/               # Các phương pháp so sánh (không phải đóng góp chính)
@@ -24,20 +25,9 @@ train/
 │   ├── train_cross_attention_crf_gate.py
 │   └── train_cross_attention_crf_gate_cl.py
 └── legacy/                  # Bản nháp/cũ, KHÔNG dùng cho kết quả chính thức
-    ├── train_EXCT_draft.py          # Bản nháp sớm của external-context, đã được thay bằng main_models/train_external_context.py
+    ├── train_EXCT_draft.py          # Bản nháp sớm của external-context, đã được thay bằng external_context/train_external_context.py
     └── train_maf_legacy_broken.py   # File cũ, import 1 class không còn tồn tại (MTCCMRobertaForMMTokenClassificationCRF) — hiện KHÔNG chạy được, giữ lại chỉ để tham khảo lịch sử
 ```
-
-**Đối chiếu với 2 sơ đồ kiến trúc:**
-
-| Sơ đồ | Model | Script | Module |
-|---|---|---|---|
-| Ảnh 1 (Image Reconstruction + Auxiliary Span + Multimodal Transformer + L_CL) | **Model 1** | `train/main_models/train_pixelcnn_cl.py` | `modules/model_architecture/UMT_PixelCNN.py` |
-| Ảnh 2 (thêm nhánh Search Engine → Re-ranking → External Context x̃, loss nhân đôi cho x và x̃) | **Model 2** | `train/main_models/train_external_context.py` | `modules/model_architecture/UMT_PixelCNN_external_context.py` |
-
-Cả 2 model đều backbone-agnostic qua tham số `--bert_model` (đổi giữa `vinai/phobert-base-v2`, `vinai/phobert-large`, `xlm-roberta-base`, `xlm-roberta-large`, `visobert`... không cần đổi code) — khớp với các dòng trong bảng kết quả như "phobert + UMT + PixelCNN + CL", "XLM-Roberta-large + UMT + PixelCNN + CL", "My model + External Context", "XLM-Roberta-large + external context", v.v.
-
-Biến thể mBERT dùng script riêng (`*_mbert.py`) vì dùng `BertModel`/`BertConfig` thay vì `RobertaModel`/`RobertaConfig`.
 
 ## 1. Yêu cầu môi trường
 
@@ -75,10 +65,10 @@ wget https://download.pytorch.org/models/resnet152-b121ed2d.pth -O modules/resne
 
 ## 4. Chuẩn bị dữ liệu
 
-Model trong `train/main_models/train_pixelcnn_cl.py` (kiến trúc `UMT_PixelCNN`) là multimodal — cần **cả text lẫn ảnh**:
+Model trong `train/without_external_context/train_pixelcnn_cl.py` (kiến trúc `UMT_PixelCNN`) là multimodal — cần **cả text lẫn ảnh**:
 
 - **Text**: 3 file `train.txt`, `dev.txt`, `test.txt` theo format CoNLL (xem `sample_data/VLSP/VLSP2016/` làm ví dụ). Đặt cả 3 file vào cùng 1 thư mục, dùng làm `--data_dir`.
-- **Ảnh**: thư mục ảnh tương ứng với ID trong text (`IMGID:...`), dùng làm `--path_image`. Lưu ý: nếu bạn chỉ tải phần text của dataset (không tải ảnh), bạn **chưa thể chạy được bất kỳ script nào trong `train/main_models/`, `train/ablations/`, `train/baselines/`** vì tất cả đều là model multimodal, bắt buộc có ảnh. Cần tải thêm `ner_image.zip` tương ứng (ví dụ từ `origin+image/VLSP2016/ner_image.zip` trên HuggingFace) và giải nén vào 1 thư mục riêng.
+- **Ảnh**: thư mục ảnh tương ứng với ID trong text (`IMGID:...`), dùng làm `--path_image`. Lưu ý: nếu bạn chỉ tải phần text của dataset (không tải ảnh), bạn **chưa thể chạy được bất kỳ script nào trong `train/without_external_context/`, `train/external_context/`, `train/ablations/`, `train/baselines/`** vì tất cả đều là model multimodal, bắt buộc có ảnh. Cần tải thêm `ner_image.zip` tương ứng (ví dụ từ `origin+image/VLSP2016/ner_image.zip` trên HuggingFace) và giải nén vào 1 thư mục riêng.
 - Toàn bộ model trong repo này đều multimodal (không có phiên bản text-only). Xem mục 0 để chọn đúng script theo model bạn muốn chạy.
 
 Đặt nhãn (label set) đúng với bộ dữ liệu bạn dùng, ví dụ với VLSP2016:
@@ -94,7 +84,7 @@ Ví dụ chạy cho VLSP2016 (tham khảo README.md để lấy cấu hình đ�
 ```bash
 export LABELS="B-ORG,B-MISC,I-PER,I-ORG,B-LOC,I-MISC,I-LOC,O,B-PER,X,<s>,</s>"
 
-python train/main_models/train_pixelcnn_cl.py \
+python train/without_external_context/train_pixelcnn_cl.py \
     --do_train \
     --do_eval \
     --output_dir output/vlsp2016_run1 \
