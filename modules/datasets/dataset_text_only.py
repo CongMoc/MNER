@@ -13,6 +13,10 @@ def convert_text_examples_to_features(examples, label_list, max_seq_length, toke
     for example in examples:
         textlist = example.text_a.split(' ')
         labellist = example.label
+        assert len(textlist) == len(labellist), (
+            f"token/label count mismatch ({len(textlist)} vs {len(labellist)}) for guid={example.guid}: "
+            "a token likely contains an embedded space, desyncing text_a.split(' ') from the label list"
+        )
         tokens, labels = [], []
         for i, word in enumerate(textlist):
             token = tokenizer.tokenize(word)

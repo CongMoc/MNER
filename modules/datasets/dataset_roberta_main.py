@@ -78,7 +78,12 @@ def sbreadfile(filename):
         
         if splits[0] == '' or splits[0].isspace() or splits[0] in SPECIAL_TOKENS or splits[0].startswith(URL_PREFIX):
             splits[0] = "<unk>"
-        
+        elif ' ' in splits[0]:
+            # a token must not contain whitespace: text_a is later reconstructed via
+            # ' '.join(sentence) and re-split on ' ', so an embedded space here would
+            # desync it from the per-token label list
+            splits[0] = '_'.join(splits[0].split())
+
         sentence.append(splits[0])
         cur_label = splits[-1][:-1]
         if cur_label == 'B-OTHER':
