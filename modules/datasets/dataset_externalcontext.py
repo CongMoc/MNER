@@ -1,6 +1,7 @@
-import torch 
+import torch
 import logging
 import os
+import random
 from transformers import AutoTokenizer
 logger = logging.getLogger(__name__)
 from torchvision import transforms
@@ -192,7 +193,7 @@ class MNERProcessor(DataProcessor):
         return self._create_examples(data, imgs, auxlabels, "test")
 
     def get_labels(self):
-        # return os.getenv("LABELS", "").split(",")
+        return os.getenv("LABELS", "").split(",")
         # vlsp2021
         # return ["O","I-PRODUCT-AWARD","B-MISCELLANEOUS","B-QUANTITY-NUM","B-ORGANIZATION-SPORTS","B-DATETIME","I-ADDRESS","I-PERSON","I-EVENT-SPORT","B-ADDRESS","B-EVENT-NATURAL","I-LOCATION-GPE","B-EVENT-GAMESHOW","B-DATETIME-TIMERANGE","I-QUANTITY-NUM","I-QUANTITY-AGE","B-EVENT-CUL","I-QUANTITY-TEM","I-PRODUCT-LEGAL","I-LOCATION-STRUC","I-ORGANIZATION","B-PHONENUMBER","B-IP","B-QUANTITY-AGE","I-DATETIME-TIME","I-DATETIME","B-ORGANIZATION-MED","B-DATETIME-SET","I-EVENT-CUL","B-QUANTITY-DIM","I-QUANTITY-DIM","B-EVENT","B-DATETIME-DATERANGE","I-EVENT-GAMESHOW","B-PRODUCT-AWARD","B-LOCATION-STRUC","B-LOCATION","B-PRODUCT","I-MISCELLANEOUS","B-SKILL","I-QUANTITY-ORD","I-ORGANIZATION-STOCK","I-LOCATION-GEO","B-PERSON","B-PRODUCT-COM","B-PRODUCT-LEGAL","I-LOCATION","B-QUANTITY-TEM","I-PRODUCT","B-QUANTITY-CUR","I-QUANTITY-CUR","B-LOCATION-GPE","I-PHONENUMBER","I-ORGANIZATION-MED","I-EVENT-NATURAL","I-EMAIL","B-ORGANIZATION","B-URL","I-DATETIME-TIMERANGE","I-QUANTITY","I-IP","B-EVENT-SPORT","B-PERSONTYPE","B-QUANTITY-PER","I-QUANTITY-PER","I-PRODUCT-COM","I-DATETIME-DURATION","B-LOCATION-GPE-GEO","B-QUANTITY-ORD","I-EVENT","B-DATETIME-TIME","B-QUANTITY","I-DATETIME-SET","I-LOCATION-GPE-GEO","B-ORGANIZATION-STOCK","I-ORGANIZATION-SPORTS","I-SKILL","I-URL","B-DATETIME-DURATION","I-DATETIME-DATE","I-PERSONTYPE","B-DATETIME-DATE","I-DATETIME-DATERANGE","B-LOCATION-GEO","B-EMAIL","X","<s>", "</s>"]
         
@@ -234,7 +235,13 @@ def image_process(image_path, transform):
     image = transform(image)
     return image
 
-def convert_mm_examples_to_features(examples, label_list, auxlabel_list, max_seq_length, tokenizer, crop_size, path_img):
+def convert_mm_examples_to_features(examples, label_list, auxlabel_list, max_seq_length, tokenizer, crop_size, path_img,
+ num_image_tokens=49, image_mean=(0.485, 0.456, 0.406), image_std=(0.229, 0.224, 0.225),
+ random_image_source=False, random_seed=37, blank_image_source=False, generated_image_source=False):
+    # num_image_tokens/image_mean/image_std default to the ResNet-152 setup (7x7=49 spatial
+    # patches, ImageNet stats); pass ViT-specific values when the visual backbone is a ViT.
+    # random_image_source/blank_image_source/generated_image_source: same ablation modes as
+    # in dataset_roberta_main.py -- see that file for details.
     label_map = {label: i for i, label in enumerate(label_list, 1)}
     auxlabel_map = {label: i for i, label in enumerate(auxlabel_list, 1)}
 
@@ -242,13 +249,16 @@ def convert_mm_examples_to_features(examples, label_list, auxlabel_list, max_seq
     count = 0
     ti_crop_size = 32
 
+    if random_image_source:
+        image_pool = sorted(f for f in os.listdir(path_img) if f != 'background.jpg')
+        rng = random.Random(random_seed)
+
     transform = transforms.Compose([
         transforms.Resize([256, 256]),
         transforms.RandomCrop(crop_size),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize((0.485, 0.456, 0.406),
-                            (0.229, 0.224, 0.225))])
+        transforms.Normalize(image_mean, image_std)])
 
     transform_for_ti = transforms.Compose([
         transforms.Resize([ti_crop_size, ti_crop_size]),
@@ -316,10 +326,12 @@ def convert_mm_examples_to_features(examples, label_list, auxlabel_list, max_seq
                 auxlabel_ids_external.append(auxlabel_map[auxlabels[i]])
             elif token == "</s>":
                 ntokens.append(token)
+                # NOTE: segment stays 0 -- RoBERTa/XLM-R has type_vocab_size=1 (single
+                # segment type only), unlike BERT's sentence-pair type_vocab_size=2, so
+                # incrementing segment here would index out of range in token_type_embeddings.
                 segment_ids_external.append(segment)
                 label_ids_external.append(label_map[labels[i]])
                 auxlabel_ids_external.append(auxlabel_map[auxlabels[i]])
-                segment += 1
                 flag = False
 
         ntokens.append("</s>")
@@ -335,8 +347,8 @@ def convert_mm_examples_to_features(examples, label_list, auxlabel_list, max_seq
         input_mask_external = [1] * len(input_ids_external)
         input_ids_origin = tokenizer.convert_tokens_to_ids(ntokens2)
         input_mask_origin = [1] * len(input_ids_origin)
-        added_input_mask_external = [1] * (len(input_ids_external) + 49)
-        added_input_mask_origin = [1] * (len(input_ids_origin) + 49)
+        added_input_mask_external = [1] * (len(input_ids_external) + num_image_tokens)
+        added_input_mask_origin = [1] * (len(input_ids_origin) + num_image_tokens)
 
         while len(input_ids_external) < max_seq_length:
             input_ids_external.append(0)
@@ -356,18 +368,25 @@ def convert_mm_examples_to_features(examples, label_list, auxlabel_list, max_seq
 
         assert len(input_ids_external) == max_seq_length
         assert len(input_mask_external) == max_seq_length
-        assert len(added_input_mask_external) == max_seq_length + 49
+        assert len(added_input_mask_external) == max_seq_length + num_image_tokens
         assert len(segment_ids_external) == max_seq_length
         assert len(label_ids_external) == max_seq_length
         assert len(auxlabel_ids_external) == max_seq_length
         assert len(input_ids_origin) == max_seq_length
         assert len(input_mask_origin) == max_seq_length
-        assert len(added_input_mask_origin) == max_seq_length + 49
+        assert len(added_input_mask_origin) == max_seq_length + num_image_tokens
         assert len(segment_ids_origin) == max_seq_length
         assert len(label_ids_origin) == max_seq_length
         assert len(auxlabel_ids_origin) == max_seq_length
 
-        image_name = example.img_id
+        if blank_image_source:
+            image_name = 'background.jpg'
+        elif random_image_source:
+            image_name = rng.choice(image_pool)
+        elif generated_image_source:
+            image_name = f"{example.guid}.jpg"
+        else:
+            image_name = example.img_id
         image_path = os.path.join(path_img, image_name)
 
         if not os.path.exists(image_path):

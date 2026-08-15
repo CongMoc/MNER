@@ -1,6 +1,7 @@
-import torch 
+import torch
 import logging
 import os
+import random
 logger = logging.getLogger(__name__)
 from torchvision import transforms
 from PIL import Image
@@ -181,7 +182,24 @@ def image_process(image_path, transform):
     return image
 
 def convert_mm_examples_to_features(examples, label_list, auxlabel_list,
- max_seq_length, tokenizer, crop_size,path_img):
+ max_seq_length, tokenizer, crop_size, path_img, num_image_tokens=49,
+ image_mean=(0.485, 0.456, 0.406), image_std=(0.229, 0.224, 0.225),
+ random_image_source=False, random_seed=37, blank_image_source=False,
+ generated_image_source=False):
+    # num_image_tokens/image_mean/image_std default to the ResNet-152 setup
+    # (7x7=49 spatial patches, ImageNet stats); pass ViT-specific values
+    # (e.g. 196 patches, mean/std=0.5) when the visual backbone is a ViT.
+    # random_image_source: ablation mode ("Random" image source) -- each
+    # example gets a fixed, randomly-chosen real image from path_img instead
+    # of its correct IMGID-matched image. The mapping is generated once here
+    # (deterministic given random_seed) and then baked into the cached
+    # features, so it stays fixed across the whole run.
+    # blank_image_source: ablation mode ("Blank" image source) -- every
+    # example uses the same neutral background.jpg placeholder instead of
+    # its correct image, so the model gets no per-example visual signal.
+    # generated_image_source: ablation mode ("Generated" image source) -- each
+    # example uses a pre-generated (e.g. text-to-image) image stored at
+    # path_img/{example.guid}.jpg instead of its correct crawled image.
 
     label_map = {label: i for i, label in enumerate(label_list, 1)}
     auxlabel_map = {label: i for i, label in enumerate(auxlabel_list, 1)}
@@ -190,13 +208,16 @@ def convert_mm_examples_to_features(examples, label_list, auxlabel_list,
     count = 0
     ti_crop_size=32
 
+    if random_image_source:
+        image_pool = sorted(f for f in os.listdir(path_img) if f != 'background.jpg')
+        rng = random.Random(random_seed)
+
     transform = transforms.Compose([
             transforms.Resize([256, 256]),
             transforms.RandomCrop(crop_size),  # args.crop_size, by default it is set to be 224
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406),
-                                (0.229, 0.224, 0.225))])
+            transforms.Normalize(image_mean, image_std)])
 
     transform_for_ti = transforms.Compose([
             transforms.Resize([ti_crop_size, ti_crop_size]),  # 调整图片到指定的大小
@@ -246,7 +267,7 @@ def convert_mm_examples_to_features(examples, label_list, auxlabel_list,
         auxlabel_ids.append(auxlabel_map["</s>"])
         input_ids = tokenizer.convert_tokens_to_ids(ntokens)
         input_mask = [1] * len(input_ids)
-        added_input_mask = [1] * (len(input_ids) + 49)  # 1 or 49 is for encoding regional image representations
+        added_input_mask = [1] * (len(input_ids) + num_image_tokens)  # extra tokens for encoding regional image representations
 
         while len(input_ids) < max_seq_length:
             input_ids.append(0)
@@ -262,7 +283,14 @@ def convert_mm_examples_to_features(examples, label_list, auxlabel_list,
         assert len(label_ids) == max_seq_length
         assert len(auxlabel_ids) == max_seq_length
 
-        image_name = example.img_id
+        if blank_image_source:
+            image_name = 'background.jpg'
+        elif random_image_source:
+            image_name = rng.choice(image_pool)
+        elif generated_image_source:
+            image_name = f"{example.guid}.jpg"
+        else:
+            image_name = example.img_id
         image_path = os.path.join(path_img, image_name)
 
         if not os.path.exists(image_path):

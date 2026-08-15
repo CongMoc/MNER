@@ -361,17 +361,17 @@ class gated_resnet(nn.Module):
         return og_x + c3
 
 class PixelCNNLayer_down(nn.Module):
-    def __init__(self, nr_resnet, nr_filters, resnet_nonlinearity):
+    def __init__(self, nr_resnet, nr_filters, resnet_nonlinearity, h_dim=768):
         super(PixelCNNLayer_down, self).__init__()
         self.nr_resnet = nr_resnet
         # stream from pixels above
         self.u_stream = nn.ModuleList([gated_resnet(nr_filters, down_shifted_conv2d,
-                                                    resnet_nonlinearity, skip_connection=1)
+                                                    resnet_nonlinearity, skip_connection=1, h_dim=h_dim)
                                        for _ in range(nr_resnet)])
 
         # stream from pixels above and to thes left
         self.ul_stream = nn.ModuleList([gated_resnet(nr_filters, down_right_shifted_conv2d,
-                                        resnet_nonlinearity, skip_connection=2)
+                                        resnet_nonlinearity, skip_connection=2, h_dim=h_dim)
                                         for _ in range(nr_resnet)])
 
     def forward(self, u, ul, u_list, ul_list, h=None):
@@ -383,17 +383,17 @@ class PixelCNNLayer_down(nn.Module):
 
 
 class PixelCNNLayer_up(nn.Module):
-    def __init__(self, nr_resnet, nr_filters, resnet_nonlinearity):
+    def __init__(self, nr_resnet, nr_filters, resnet_nonlinearity, h_dim=768):
         super(PixelCNNLayer_up, self).__init__()
         self.nr_resnet = nr_resnet
         # stream from pixels above
         self.u_stream = nn.ModuleList([gated_resnet(nr_filters, down_shifted_conv2d,
-                                                    resnet_nonlinearity, skip_connection=0)
+                                                    resnet_nonlinearity, skip_connection=0, h_dim=h_dim)
                                        for _ in range(nr_resnet)])
 
         # stream from pixels above and to thes left
         self.ul_stream = nn.ModuleList([gated_resnet(nr_filters, down_right_shifted_conv2d,
-                                        resnet_nonlinearity, skip_connection=1)
+                                        resnet_nonlinearity, skip_connection=1, h_dim=h_dim)
                                         for _ in range(nr_resnet)])
 
     def forward(self, u, ul, h=None):
@@ -409,7 +409,7 @@ class PixelCNNLayer_up(nn.Module):
 
 class ImageDecoder(nn.Module):
     def __init__(self, nr_resnet=5, nr_filters=80, nr_logistic_mix=10,
-                 resnet_nonlinearity='concat_elu', input_channels=3):
+                 resnet_nonlinearity='concat_elu', input_channels=3, h_dim=768):
         super(ImageDecoder, self).__init__()
         if resnet_nonlinearity == 'concat_elu':
             self.resnet_nonlinearity = lambda x: concat_elu(x)
@@ -425,10 +425,10 @@ class ImageDecoder(nn.Module):
 
         down_nr_resnet = [nr_resnet] + [nr_resnet + 1] * 2
         self.down_layers = nn.ModuleList([PixelCNNLayer_down(down_nr_resnet[i], nr_filters,
-                                                             self.resnet_nonlinearity) for i in range(3)])
+                                                             self.resnet_nonlinearity, h_dim=h_dim) for i in range(3)])
 
         self.up_layers = nn.ModuleList([PixelCNNLayer_up(nr_resnet, nr_filters,
-                                                         self.resnet_nonlinearity) for _ in range(3)])
+                                                         self.resnet_nonlinearity, h_dim=h_dim) for _ in range(3)])
 
         self.downsize_u_stream = nn.ModuleList([down_shifted_conv2d(nr_filters, nr_filters,
                                                                     stride=(2, 2)) for _ in range(2)])

@@ -165,3 +165,12 @@ cache/*
 resnet152.pth
 train_bert_model
 models
+output
+*.png
+results_export
+.secrets/
+.DS_Store
+scripts/gen_external_context/data/
+scripts/gen_external_context/output/
+.claude
+scripts/*
