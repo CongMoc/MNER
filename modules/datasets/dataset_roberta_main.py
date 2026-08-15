@@ -75,7 +75,15 @@ def sbreadfile(filename):
                 auxlabel = []
             continue
         splits = line.split('\t')
-        
+
+        if len(splits) < 2:
+            # malformed row: no tab-separated label, e.g. "token\n" with nothing after it.
+            # Without this guard splits[-1] falls back to splits[0] and the raw token text
+            # gets treated as a BIO label, crashing label_map lookups downstream with a
+            # confusing KeyError instead of pointing at the bad data row.
+            logger.warning("Skipping malformed line (no tab-separated label) in %s: %r", filename, line)
+            continue
+
         if splits[0] == '' or splits[0].isspace() or splits[0] in SPECIAL_TOKENS or splits[0].startswith(URL_PREFIX):
             splits[0] = "<unk>"
         elif ' ' in splits[0]:
