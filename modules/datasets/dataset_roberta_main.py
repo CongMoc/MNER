@@ -74,26 +74,30 @@ def sbreadfile(filename):
                 imgid = ''
                 auxlabel = []
             continue
-        splits = line.split('\t')
+        stripped = line.rstrip('\n').rstrip('\r')
+        # Rows are normally tab-separated ("token\tlabel"); some sources instead export
+        # classic whitespace-separated CoNLL ("token label"). Prefer tab when present so a
+        # token containing a literal space still round-trips, else fall back to whitespace.
+        splits = stripped.split('\t') if '\t' in stripped else stripped.split()
 
         if len(splits) < 2:
-            # malformed row: no tab-separated label, e.g. "token\n" with nothing after it.
+            # malformed row: no separator between token and label found at all.
             # Without this guard splits[-1] falls back to splits[0] and the raw token text
             # gets treated as a BIO label, crashing label_map lookups downstream with a
             # confusing KeyError instead of pointing at the bad data row.
-            logger.warning("Skipping malformed line (no tab-separated label) in %s: %r", filename, line)
+            logger.warning("Skipping malformed line (no token/label separator) in %s: %r", filename, line)
             continue
 
-        if splits[0] == '' or splits[0].isspace() or splits[0] in SPECIAL_TOKENS or splits[0].startswith(URL_PREFIX):
-            splits[0] = "<unk>"
-        elif ' ' in splits[0]:
+        token, cur_label = splits[0], splits[-1]
+        if token == '' or token.isspace() or token in SPECIAL_TOKENS or token.startswith(URL_PREFIX):
+            token = "<unk>"
+        elif ' ' in token:
             # a token must not contain whitespace: text_a is later reconstructed via
             # ' '.join(sentence) and re-split on ' ', so an embedded space here would
             # desync it from the per-token label list
-            splits[0] = '_'.join(splits[0].split())
+            token = '_'.join(token.split())
 
-        sentence.append(splits[0])
-        cur_label = splits[-1][:-1]
+        sentence.append(token)
         if cur_label == 'B-OTHER':
             cur_label = 'B-MISC'
         elif cur_label == 'I-OTHER':
