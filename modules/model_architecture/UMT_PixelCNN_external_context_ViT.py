@@ -5,6 +5,14 @@ from torch import nn
 from modules.model_architecture.torchcrf import CRF
 import torch.nn.functional as F
 
+
+def _unwrap_layer_output(x):
+    # RobertaSelfEncoder.forward appends each layer's output as-is. Older transformers
+    # versions had RobertaLayer.forward return a (hidden_states,) tuple, hence the `[0]`
+    # at every call site below; current transformers (5.x) returns the hidden_states
+    # tensor directly, so that same `[0]` would instead slice out batch element 0.
+    return x[0] if isinstance(x, (tuple, list)) else x
+
 class UMT_PixelCNN_ExternalContext_ViT(RobertaPreTrainedModel):
     """Coupled Cross-Modal Attention model for token-level classification with CRF on top,
     with an External Context branch. Generalized so the visual backbone's hidden size and
@@ -118,15 +126,13 @@ class UMT_PixelCNN_ExternalContext_ViT(RobertaPreTrainedModel):
         extended_txt_mask_external = (1.0 - extended_txt_mask_external) * -10000.0
         aux_addon_sequence_encoder_external = self.self_attention(sequence_output_external, extended_txt_mask_external)
 
-        aux_addon_sequence_output_external = aux_addon_sequence_encoder_external[-1]
-        aux_addon_sequence_output_external = aux_addon_sequence_output_external[0]
+        aux_addon_sequence_output_external = _unwrap_layer_output(aux_addon_sequence_encoder_external[-1])
         aux_bert_feats_external = self.aux_classifier(aux_addon_sequence_output_external)
         #######aux_bert_feats = self.aux_classifier(sequence_output)
         trans_bert_feats_external = torch.matmul(aux_bert_feats_external, trans_matrix.float())
 
         main_addon_sequence_encoder_external = self.self_attention_v2(sequence_output_external, extended_txt_mask_external)
-        main_addon_sequence_output_external = main_addon_sequence_encoder_external[-1]
-        main_addon_sequence_output_external = main_addon_sequence_output_external[0]
+        main_addon_sequence_output_external = _unwrap_layer_output(main_addon_sequence_encoder_external[-1])
         vis_embed_map_external = visual_embeds_att.view(-1, self.vis_hidden_size, self.num_img_tokens).permute(0, 2, 1)  # self.batch_size, num_img_tokens, vis_hidden_size
         converted_vis_embed_map_external = self.vismap2text(vis_embed_map_external)  # self.batch_size, 49, hidden_dim
 
@@ -183,14 +189,12 @@ class UMT_PixelCNN_ExternalContext_ViT(RobertaPreTrainedModel):
             extended_txt_mask_origin = extended_txt_mask_origin.to(dtype=next(self.parameters()).dtype) # fp16 compatibility
             extended_txt_mask_origin = (1.0 - extended_txt_mask_origin) * -10000.0
             aux_addon_sequence_encoder_origin = self.self_attention(sequence_output_origin, extended_txt_mask_origin)
-            aux_addon_sequence_output_origin = aux_addon_sequence_encoder_origin[-1]
-            aux_addon_sequence_output_origin = aux_addon_sequence_output_origin[0]
+            aux_addon_sequence_output_origin = _unwrap_layer_output(aux_addon_sequence_encoder_origin[-1])
             aux_bert_feats_origin = self.aux_classifier(aux_addon_sequence_output_origin)
             #######aux_bert_feats = self.aux_classifier(sequence_output)
             trans_bert_feats_origin = torch.matmul(aux_bert_feats_origin, trans_matrix.float())
             main_addon_sequence_encoder_origin = self.self_attention_v2(sequence_output_origin, extended_txt_mask_origin)
-            main_addon_sequence_output_origin = main_addon_sequence_encoder_origin[-1]
-            main_addon_sequence_output_origin = main_addon_sequence_output_origin[0]
+            main_addon_sequence_output_origin = _unwrap_layer_output(main_addon_sequence_encoder_origin[-1])
             vis_embed_map_origin = visual_embeds_att.view(-1, self.vis_hidden_size, self.num_img_tokens).permute(0, 2, 1)  # self.batch_size, num_img_tokens, vis_hidden_size
             converted_vis_embed_map_origin = self.vismap2text(vis_embed_map_origin)  # self.batch_size, 49, hidden_dim
             # apply txt2img attention mechanism to obtain image-based text representations
