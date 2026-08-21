@@ -52,6 +52,7 @@ class VLMNERDataset(Dataset):
         prompt_enc = self.processor(text=[prompt_text], images=[image], return_tensors='pt')
 
         input_ids = full_enc['input_ids'][0][:self.max_length]
+        mm_token_type_ids = full_enc['mm_token_type_ids'][0][:self.max_length]
         prefix_len = min(prompt_enc['input_ids'].shape[1], input_ids.shape[0])
 
         labels = input_ids.clone()
@@ -60,6 +61,7 @@ class VLMNERDataset(Dataset):
         return {
             'input_ids': input_ids,
             'labels': labels,
+            'mm_token_type_ids': mm_token_type_ids,
             'pixel_values': full_enc['pixel_values'],
             'image_grid_thw': full_enc['image_grid_thw'][0],
         }
@@ -71,17 +73,21 @@ class VLMCollator:
 
     def __call__(self, batch):
         max_len = max(x['input_ids'].shape[0] for x in batch)
-        input_ids, labels, attn = [], [], []
+        input_ids, labels, attn, mm_token_type_ids = [], [], [], []
         for x in batch:
             n_pad = max_len - x['input_ids'].shape[0]
             input_ids.append(torch.cat([x['input_ids'], torch.full((n_pad,), self.pad_token_id, dtype=torch.long)]))
             labels.append(torch.cat([x['labels'], torch.full((n_pad,), IGNORE_INDEX, dtype=torch.long)]))
             attn.append(torch.cat([torch.ones(x['input_ids'].shape[0], dtype=torch.long), torch.zeros(n_pad, dtype=torch.long)]))
+            # pad with 0 (text-token type) -- padding positions carry no image content and are
+            # already excluded from attention via attention_mask
+            mm_token_type_ids.append(torch.cat([x['mm_token_type_ids'], torch.zeros(n_pad, dtype=torch.long)]))
 
         return {
             'input_ids': torch.stack(input_ids),
             'labels': torch.stack(labels),
             'attention_mask': torch.stack(attn),
+            'mm_token_type_ids': torch.stack(mm_token_type_ids),
             'pixel_values': torch.cat([x['pixel_values'] for x in batch], dim=0),
             'image_grid_thw': torch.stack([x['image_grid_thw'] for x in batch]),
         }
@@ -142,7 +148,7 @@ if __name__ == '__main__':
         per_device_eval_batch_size=args.train_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         learning_rate=args.learning_rate,
-        warmup_ratio=0.1,
+        warmup_steps=0.1,  # float < 1 -> interpreted as ratio of total training steps
         logging_steps=20,
         eval_strategy="epoch",
         save_strategy="epoch",

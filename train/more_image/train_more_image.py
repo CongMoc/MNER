@@ -48,6 +48,7 @@ parser.add_argument("--num_train_epochs", default=10.0, type=float)
 parser.add_argument("--warmup_proportion", default=0.4, type=float)
 parser.add_argument('--seed', type=int, default=37)
 parser.add_argument('--gradient_accumulation_steps', type=int, default=1)
+parser.add_argument('--image_source', default='crawled', choices=['crawled', 'random', 'blank', 'generated'])
 args = parser.parse_args()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -103,13 +104,19 @@ output_model_file = os.path.join(args.output_dir, 'pytorch_model.bin')
 
 
 def build_dataset(examples, cache_tag):
-    cache_file = os.path.join(args.data_dir, f"{cache_tag}_dataset_more_image.pth")
+    # image_source in the cache filename: without it, switching --image_source between
+    # runs that share --data_dir would silently reload another ablation's cached tensors.
+    cache_file = os.path.join(args.data_dir, f"{cache_tag}_dataset_more_image_{args.image_source}.pth")
     if os.path.exists(cache_file):
         return torch.load(cache_file)
     features = convert_mm_examples_to_features(
         examples, label_list, auxlabel_list, args.max_seq_length, tokenizer, args.crop_size, args.path_image,
         num_image_tokens=encoder.num_patches if not isinstance(encoder, torch.nn.DataParallel) else encoder.module.num_patches,
-        image_mean=(0.5, 0.5, 0.5), image_std=(0.5, 0.5, 0.5))
+        image_mean=(0.5, 0.5, 0.5), image_std=(0.5, 0.5, 0.5),
+        random_image_source=(args.image_source == 'random'),
+        random_seed=args.seed,
+        blank_image_source=(args.image_source == 'blank'),
+        generated_image_source=(args.image_source == 'generated'))
     all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
     all_input_mask = torch.tensor([f.input_mask for f in features], dtype=torch.long)
     all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.long)

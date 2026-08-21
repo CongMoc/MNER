@@ -114,7 +114,7 @@ if __name__ == '__main__':
         per_device_eval_batch_size=args.train_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         learning_rate=args.learning_rate,
-        warmup_ratio=0.1,
+        warmup_steps=0.1,  # float < 1 -> interpreted as ratio of total training steps
         logging_steps=20,
         eval_strategy="epoch",
         save_strategy="epoch",
