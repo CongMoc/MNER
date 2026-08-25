@@ -4,382 +4,123 @@
 - [Requirements](#requirements)
 - [Datasets](#datasets)
 - [Training](#training)
+  - [External Context model (main)](#external-context-model-main)
+  - [Other training modes](#other-training-modes)
 
 ## Requirements
-The project is based on PyTorch 1.1+ and Python 3.7. To run our code, install:
+The project is based on PyTorch 1.1+ and Python 3.7+. To run our code, install:
 
 ```
 pip install -r requirements.txt
 ```
 
-Download the pre-trained ResNet-152 via this link (https://download.pytorch.org/models/resnet152-b121ed2d.pth)
-```
-wget https://download.pytorch.org/models/resnet152-b121ed2d.pth -O modules/resnet/resnet152.pth
-```
-## Datasets
-vlsp [here](https://vlsp.org.vn/vlsp2021/eval/ner)
+The External Context model uses a ViT image encoder pulled automatically from HuggingFace
+(`--vit_model`, default `google/vit-large-patch16-224-in21k`), so no manual weight download is
+needed.
 
-### Data Format
-The dataset is structured in a specific format, and you can find sample data in the sample_data folder for reference. Ensure your model or processing pipeline is compatible with this format.
+## Datasets
+
+Public sources used for this project:
+- VLSP2016 / VLSP2018: [vlsp.org.vn](https://vlsp.org.vn/vlsp2021/eval/ner), also mirrored with
+  images at [jester6136/vlsp_all](https://huggingface.co/datasets/jester6136/vlsp_all) on HuggingFace
+  (`origin/` = text only, `origin+image/` = text + a `ner_image.zip` of per-sentence images).
+- NewsMNER: images + text at [Taurus2304/MNER](https://huggingface.co/datasets/Taurus2304/MNER)
+  on HuggingFace.
+
+Datasets are **not** committed to this repo (see `.gitignore`: `data/`, `sample_data/`,
+`data_export/`) — download/build them locally before training.
+
+### Data format
+
+Each split (`train.txt` / `dev.txt` / `test.txt`) is CoNLL-style, one token per line,
+`token<TAB>label`, sentences separated by a blank line, each sentence preceded by an
+`IMGID:<image_filename_without_extension>` header line:
+
+```
+IMGID:example_001
+Chủ	B-PER
+tịch	O
+...
+<EOS>	E
+Chủ_tịch	E
+là	E
+...
+
+```
+
+For the **External Context model**, each sentence's original tokens are followed by an
+`<EOS>` token (label `E`) and then the external-context tokens (also labeled `E` — the model
+only needs to know which span is context vs. the sentence to tag). Sample data illustrating
+this format is under `sample_data/`.
+
+`LABELS` (env var, comma-separated, read by every training script) must list every tag that
+appears in your data, plus the fixed housekeeping tags `X`, `<s>`, `</s>` — and `E` for the
+External Context model specifically. Example for VLSP2016-style 4-entity data:
+
+```
+export LABELS="B-LOC,B-MISC,B-ORG,B-PER,I-LOC,I-MISC,I-ORG,I-PER,O,E,X,<s>,</s>"
+```
 
 ## Training
 
-Run:
-
-
-export LABELS="B-ORG,B-MISC,I-PER,I-ORG,B-LOC,I-MISC,I-LOC,O,B-PER,X,<s>,</s>"
-task_name="sonba"
-alpha=0.5
-beta=0.5
-theta=0.05
-sigma=0.005
-lr_pixelcnn=0.001
-weight_decay_pixelcnn=0.00005
-learning_rate=2.2e-5
-num_train_epochs=10
-train_batch_size=32
-path_image="/home/vms/bags/vlsp_all/origin+image/VLSP2016/ner_image"
-bert_model="vinai/phobert-base-v2"
-data_dir="/home/vms/bags/vlsp_all/origin+image/VLSP2016"
-resnet_root="modules/resnet"
-cache_dir="cache"
-max_seq_length=256
-
-python train/without_external_context/train_pixelcnn_cl.py \
-    --do_train \
-    --do_eval \
-    --output_dir train_umt_pixelcnn_fixedlr_2016_beta${beta}_theta${theta}_sigma${sigma}_lr${learning_rate}_fixcrf \
-    --bert_model "${bert_model}" \
-    --alpha ${alpha} \
-    --beta ${beta} \
-    --sigma ${sigma} \
-    --theta ${theta} \
-    --warmup_proportion 0.4 \
-    --gradient_accumulation_steps 1 \
-    --weight_decay_pixelcnn ${weight_decay_pixelcnn} \
-    --lr_pixelcnn ${lr_pixelcnn} \
-    --learning_rate ${learning_rate} \
-    --data_dir "${data_dir}" \
-    --num_train_epochs ${num_train_epochs} \
-    --train_batch_size ${train_batch_size} \
-    --path_image "${path_image}" \
-    --task_name "${task_name}" \
-    --resnet_root "${resnet_root}" \
-    --cache_dir "${cache_dir}" \
-    --max_seq_length ${max_seq_length}
-
-
-
-
-
-export LABELS="I-ORGANIZATION,B-ORGANIZATION,I-LOCATION,B-MISCELLANEOUS,I-PERSON,O,B-PERSON,I-MISCELLANEOUS,B-LOCATION,X,<s>,</s>"
-task_name="sonba"
-alpha=0.5
-beta=0.5
-theta=0.05
-sigma=0.005
-lr_pixelcnn=0.001
-weight_decay_pixelcnn=0.00005
-learning_rate=2.2e-5
-num_train_epochs=10
-train_batch_size=32
-path_image="/home/vms/bags/vlsp_all/origin+image/VLSP2018/ner_image"
-bert_model="vinai/phobert-base-v2"
-data_dir="/home/vms/bags/vlsp_all/origin+image/VLSP2018"
-resnet_root="modules/resnet"
-cache_dir="cache"
-max_seq_length=256
-
-python train/without_external_context/train_pixelcnn_cl.py \
-    --do_train \
-    --do_eval \
-    --output_dir train_umt_pixelcnn_fixedlr_2018_beta${beta}_theta${theta}_sigma${sigma}_lr${learning_rate} \
-    --bert_model "${bert_model}" \
-    --alpha ${alpha} \
-    --beta ${beta} \
-    --sigma ${sigma} \
-    --theta ${theta} \
-    --warmup_proportion 0.4 \
-    --gradient_accumulation_steps 1 \
-    --weight_decay_pixelcnn ${weight_decay_pixelcnn} \
-    --lr_pixelcnn ${lr_pixelcnn} \
-    --learning_rate ${learning_rate} \
-    --data_dir "${data_dir}" \
-    --num_train_epochs ${num_train_epochs} \
-    --train_batch_size ${train_batch_size} \
-    --path_image "${path_image}" \
-    --task_name "${task_name}" \
-    --resnet_root "${resnet_root}" \
-    --cache_dir "${cache_dir}" \
-    --max_seq_length ${max_seq_length}
-
-
-
-
-
-export LABELS="I-PRODUCT-AWARD,B-MISCELLANEOUS,B-QUANTITY-NUM,B-ORGANIZATION-SPORTS,B-DATETIME,I-ADDRESS,I-PERSON,I-EVENT-SPORT,B-ADDRESS,B-EVENT-NATURAL,I-LOCATION-GPE,B-EVENT-GAMESHOW,B-DATETIME-TIMERANGE,I-QUANTITY-NUM,I-QUANTITY-AGE,B-EVENT-CUL,I-QUANTITY-TEM,I-PRODUCT-LEGAL,I-LOCATION-STRUC,I-ORGANIZATION,B-PHONENUMBER,B-IP,O,B-QUANTITY-AGE,I-DATETIME-TIME,I-DATETIME,B-ORGANIZATION-MED,B-DATETIME-SET,I-EVENT-CUL,B-QUANTITY-DIM,I-QUANTITY-DIM,B-EVENT,B-DATETIME-DATERANGE,I-EVENT-GAMESHOW,B-PRODUCT-AWARD,B-LOCATION-STRUC,B-LOCATION,B-PRODUCT,I-MISCELLANEOUS,B-SKILL,I-QUANTITY-ORD,I-ORGANIZATION-STOCK,I-LOCATION-GEO,B-PERSON,B-PRODUCT-COM,B-PRODUCT-LEGAL,I-LOCATION,B-QUANTITY-TEM,I-PRODUCT,B-QUANTITY-CUR,I-QUANTITY-CUR,B-LOCATION-GPE,I-PHONENUMBER,I-ORGANIZATION-MED,I-EVENT-NATURAL,I-EMAIL,B-ORGANIZATION,B-URL,I-DATETIME-TIMERANGE,I-QUANTITY,I-IP,B-EVENT-SPORT,B-PERSONTYPE,B-QUANTITY-PER,I-QUANTITY-PER,I-PRODUCT-COM,I-DATETIME-DURATION,B-LOCATION-GPE-GEO,B-QUANTITY-ORD,I-EVENT,B-DATETIME-TIME,B-QUANTITY,I-DATETIME-SET,I-LOCATION-GPE-GEO,B-ORGANIZATION-STOCK,I-ORGANIZATION-SPORTS,I-SKILL,I-URL,B-DATETIME-DURATION,I-DATETIME-DATE,I-PERSONTYPE,B-DATETIME-DATE,I-DATETIME-DATERANGE,B-LOCATION-GEO,B-EMAIL,X,<s>,</s>"
-task_name="sonba"
-alpha=0.5
-beta=0.5
-theta=0.05
-sigma=0.005
-lr_pixelcnn=0.001
-weight_decay_pixelcnn=0.00005
-learning_rate=3e-5
-num_train_epochs=12
-train_batch_size=16
-path_image="/home/vms/bags/vlsp_all/origin+image/VLSP2021/ner_image"
-bert_model="vinai/phobert-base-v2"
-data_dir="/home/vms/bags/vlsp_all/origin+image/VLSP2021"
-resnet_root="modules/resnet"
-cache_dir="cache"
-max_seq_length=256
-
-python train/baselines/train_umt.py \
-    --do_train \
-    --do_eval \
-    --output_dir train_umt_2021_beta${beta}_theta${theta}_sigma${sigma}_lr${learning_rate} \
-    --bert_model "${bert_model}" \
-    --warmup_proportion 0.4 \
-    --gradient_accumulation_steps 1 \
-    --learning_rate ${learning_rate} \
-    --data_dir "${data_dir}" \
-    --num_train_epochs ${num_train_epochs} \
-    --train_batch_size ${train_batch_size} \
-    --path_image "${path_image}" \
-    --task_name "${task_name}" \
-    --resnet_root "${resnet_root}" \
-    --cache_dir "${cache_dir}" \
-    --max_seq_length ${max_seq_length}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+### External Context model (main)
+
+`train/external_context/train_external_context_xlmr_vit.py` trains the flagship model:
+an XLM-R-large text encoder + ViT image encoder, cross-attention between the original
+sentence and its external context, with a CRF tagging head.
 
 ```bash
+export LABELS="B-LOC,B-MISC,B-ORG,B-PER,I-LOC,I-MISC,I-ORG,I-PER,O,E,X,<s>,</s>"
 
-export LABELS="B-ORG,B-MISC,I-PER,I-ORG,B-LOC,I-MISC,I-LOC,O,B-PER,X,<s>,</s>"
-task_name="sonba"
-alpha=0.5
-beta=0.5
-theta=0.05
-sigma=0.005
-lr_pixelcnn=0.001
-weight_decay_pixelcnn=0.00005
-learning_rate=3e-5
-num_train_epochs=10
-train_batch_size=64
-path_image="/home/rad/nlp/bags/vlsp_all/origin+image/VLSP2016/ner_image"
-bert_model="vinai/phobert-base-v2"
-data_dir="/home/rad/nlp/bags/vlsp_all/origin+image/VLSP2016"
-resnet_root="modules/resnet"
-cache_dir="cache"
-max_seq_length=256
-
-python train/without_external_context/train_pixelcnn_cl.py \
+python train/external_context/train_external_context_xlmr_vit.py \
     --do_train \
     --do_eval \
-    --output_dir $_beta${beta}_theta${theta}_sigma${sigma}_lr${learning_rate} \
-    --bert_model "${bert_model}" \
-    --alpha ${alpha} \
-    --beta ${beta} \
-    --sigma ${sigma} \
-    --theta ${theta} \
+    --data_dir "path/to/your/dataset"      `# dir with train.txt / dev.txt / test.txt` \
+    --path_image "path/to/your/dataset/images" \
+    --output_dir "output/my_external_context_run" \
+    --bert_model "xlm-roberta-large" \
+    --vit_model "google/vit-large-patch16-224-in21k" \
+    --image_source crawled \
+    --num_train_epochs 10 \
+    --train_batch_size 32 \
+    --learning_rate 2.2e-5 \
     --warmup_proportion 0.4 \
-    --gradient_accumulation_steps 8 \
-    --weight_decay_pixelcnn ${weight_decay_pixelcnn} \
-    --lr_pixelcnn ${lr_pixelcnn} \
-    --learning_rate ${learning_rate} \
-    --data_dir "${data_dir}" \
-    --num_train_epochs ${num_train_epochs} \
-    --train_batch_size ${train_batch_size} \
-    --path_image "${path_image}" \
-    --task_name "${task_name}" \
-    --resnet_root "${resnet_root}" \
-    --cache_dir "${cache_dir}" \
-    --max_seq_length ${max_seq_length}
+    --max_seq_length 256 \
+    --cache_dir cache \
+    --seed 37
 ```
 
+Key flags:
+- `--data_dir`: folder with `train.txt`/`dev.txt`/`test.txt` in the format above.
+- `--path_image`: folder with per-sentence images. What's expected inside depends on
+  `--image_source`:
+  - `crawled` (default): one image per sentence, filename = the `IMGID:` value + `.jpg`.
+  - `random`: same folder, a random other image from it is substituted per sentence
+    (ablation: does the *specific* image matter, or just *an* image).
+  - `blank`: folder just needs one `background.jpg` (ablation: no visual signal at all).
+  - `generated`: one image per sentence named `<split>-<index>.jpg` (e.g. `train-0.jpg`,
+    matching example order in that split's `.txt` file) — e.g. text-to-image generated from
+    the sentence, used to test whether a *real* photo is necessary.
+- `--bert_model` / `--vit_model`: any HuggingFace model id compatible with `RobertaModel` /
+  `ViTModel` respectively.
+- Output: `output_dir/pytorch_model.bin` (cross-attention + CRF head),
+  `output_dir/pytorch_encoder.bin` (fine-tuned text+image encoders), `output_dir/eval_results.txt`.
 
+To evaluate cross-dataset (train on one dataset, test on another's `test.txt` with a
+compatible label set), add `--eval_data_dir path/to/other/dataset`.
 
+### Other training modes
 
-export LABELS="I-ORGANIZATION,B-ORGANIZATION,I-LOCATION,B-MISCELLANEOUS,I-PERSON,O,B-PERSON,I-MISCELLANEOUS,B-LOCATION,X,<s>,</s>"
-task_name="sonba"
-alpha=0.5
-beta=0.5
-theta=0.05
-sigma=0.005
-lr_pixelcnn=0.001
-weight_decay_pixelcnn=0.00005
-learning_rate=3e-5
-num_train_epochs=10
-train_batch_size=32
-path_image="/home/rad/nlp/bags/vlsp_all/origin+image/VLSP2018/ner_image"
-bert_model="vinai/phobert-base-v2"
-data_dir="/home/rad/nlp/bags/vlsp_all/origin+image/VLSP2018"
-resnet_root="modules/resnet"
-cache_dir="cache"
-max_seq_length=256
+- `train/text_only/train_xlmr_crf.py` — text-only XLM-R/PhoBERT + CRF, no images at all.
+  Supports an optional `--init_checkpoint <prev_run>/pytorch_model.bin` to continue training
+  the same model on a second dataset (continual fine-tuning) instead of starting from the
+  base pretrained encoder — requires the second dataset's `LABELS` to match the first's in
+  both count and order.
 
-python train/without_external_context/train_pixelcnn_cl.py \
-    --do_train \
-    --do_eval \
-    --output_dir $_beta${beta}_theta${theta}_sigma${sigma}_lr${learning_rate} \
-    --bert_model "${bert_model}" \
-    --alpha ${alpha} \
-    --beta ${beta} \
-    --sigma ${sigma} \
-    --theta ${theta} \
-    --warmup_proportion 0.4 \
-    --gradient_accumulation_steps 8 \
-    --weight_decay_pixelcnn ${weight_decay_pixelcnn} \
-    --lr_pixelcnn ${lr_pixelcnn} \
-    --learning_rate ${learning_rate} \
-    --data_dir "${data_dir}" \
-    --num_train_epochs ${num_train_epochs} \
-    --train_batch_size ${train_batch_size} \
-    --path_image "${path_image}" \
-    --task_name "${task_name}" \
-    --resnet_root "${resnet_root}" \
-    --cache_dir "${cache_dir}" \
-    --max_seq_length ${max_seq_length}
+This follows the same `--do_train --do_eval --data_dir ... --output_dir ...` shape as the
+External Context example above; check its `argparse` block for its exact flags before running.
 
-
-
-export LABELS="I-PRODUCT-AWARD,B-MISCELLANEOUS,B-QUANTITY-NUM,B-ORGANIZATION-SPORTS,B-DATETIME,I-ADDRESS,I-PERSON,I-EVENT-SPORT,B-ADDRESS,B-EVENT-NATURAL,I-LOCATION-GPE,B-EVENT-GAMESHOW,B-DATETIME-TIMERANGE,I-QUANTITY-NUM,I-QUANTITY-AGE,B-EVENT-CUL,I-QUANTITY-TEM,I-PRODUCT-LEGAL,I-LOCATION-STRUC,I-ORGANIZATION,B-PHONENUMBER,B-IP,O,B-QUANTITY-AGE,I-DATETIME-TIME,I-DATETIME,B-ORGANIZATION-MED,B-DATETIME-SET,I-EVENT-CUL,B-QUANTITY-DIM,I-QUANTITY-DIM,B-EVENT,B-DATETIME-DATERANGE,I-EVENT-GAMESHOW,B-PRODUCT-AWARD,B-LOCATION-STRUC,B-LOCATION,B-PRODUCT,I-MISCELLANEOUS,B-SKILL,I-QUANTITY-ORD,I-ORGANIZATION-STOCK,I-LOCATION-GEO,B-PERSON,B-PRODUCT-COM,B-PRODUCT-LEGAL,I-LOCATION,B-QUANTITY-TEM,I-PRODUCT,B-QUANTITY-CUR,I-QUANTITY-CUR,B-LOCATION-GPE,I-PHONENUMBER,I-ORGANIZATION-MED,I-EVENT-NATURAL,I-EMAIL,B-ORGANIZATION,B-URL,I-DATETIME-TIMERANGE,I-QUANTITY,I-IP,B-EVENT-SPORT,B-PERSONTYPE,B-QUANTITY-PER,I-QUANTITY-PER,I-PRODUCT-COM,I-DATETIME-DURATION,B-LOCATION-GPE-GEO,B-QUANTITY-ORD,I-EVENT,B-DATETIME-TIME,B-QUANTITY,I-DATETIME-SET,I-LOCATION-GPE-GEO,B-ORGANIZATION-STOCK,I-ORGANIZATION-SPORTS,I-SKILL,I-URL,B-DATETIME-DURATION,I-DATETIME-DATE,I-PERSONTYPE,B-DATETIME-DATE,I-DATETIME-DATERANGE,B-LOCATION-GEO,B-EMAIL,X,<s>,</s>"
-task_name="sonba"
-alpha=0.5
-beta=0.5
-theta=0.05
-sigma=0.005
-lr_pixelcnn=0.001
-weight_decay_pixelcnn=0.00005
-learning_rate=3e-5
-num_train_epochs=10
-train_batch_size=32
-path_image="/home/rad/nlp/bags/vlsp_pth/VLSP2021/ner_image"
-bert_model="vinai/phobert-base-v2"
-data_dir="/home/rad/nlp/bags/vlsp_pth/VLSP2021"
-resnet_root="modules/resnet"
-cache_dir="cache"
-max_seq_length=256
-
-python train/ablations/train_pixelcnn_wo_cl.py \
-    --do_train \
-    --do_eval \
-    --output_dir $_beta${beta}_theta${theta}_sigma${sigma}_lr${learning_rate} \
-    --bert_model "${bert_model}" \
-    --alpha ${alpha} \
-    --beta ${beta} \
-    --sigma ${sigma} \
-    --theta ${theta} \
-    --warmup_proportion 0.4 \
-    --gradient_accumulation_steps 8 \
-    --weight_decay_pixelcnn ${weight_decay_pixelcnn} \
-    --lr_pixelcnn ${lr_pixelcnn} \
-    --learning_rate ${learning_rate} \
-    --data_dir "${data_dir}" \
-    --num_train_epochs ${num_train_epochs} \
-    --train_batch_size ${train_batch_size} \
-    --path_image "${path_image}" \
-    --task_name "${task_name}" \
-    --resnet_root "${resnet_root}" \
-    --cache_dir "${cache_dir}" \
-    --max_seq_length ${max_seq_length}
+The repo also has older, ResNet-152-backed training entrypoints
+(`train/without_external_context/train_pixelcnn_cl.py`, `train/baselines/train_umt.py`,
+`train/ablations/train_pixelcnn_wo_cl.py`) that predate the External Context / ViT work and
+are no longer part of the maintained pipeline.

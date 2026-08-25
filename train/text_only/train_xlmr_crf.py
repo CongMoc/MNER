@@ -29,6 +29,11 @@ parser.add_argument("--eval_data_dir", default=None, type=str,
                      help="dir with test.txt to evaluate on if different from --data_dir (cross-dataset eval); "
                           "must use a label set that is a subset of --data_dir's LABELS")
 parser.add_argument("--bert_model", default='xlm-roberta-large', type=str)
+parser.add_argument("--init_checkpoint", default=None, type=str,
+                     help="path to a pytorch_model.bin from a previous run of this script "
+                          "(full XLMR_CRF_TextOnly state dict, encoder+CRF+classifier); when set, "
+                          "training continues from these weights instead of a fresh --bert_model encoder. "
+                          "Requires the same LABELS (count and order) as the run that produced it.")
 parser.add_argument("--task_name", default='sonba', type=str)
 parser.add_argument("--output_dir", required=True, type=str)
 parser.add_argument("--cache_dir", default="cache", type=str)
@@ -74,7 +79,11 @@ tokenizer = AutoTokenizer.from_pretrained(args.bert_model, cache_dir=args.cache_
 config = RobertaConfig.from_pretrained(args.bert_model, cache_dir=args.cache_dir)
 roberta_pretrained = RobertaModel.from_pretrained(args.bert_model, cache_dir=args.cache_dir)
 model = XLMR_CRF_TextOnly(config, num_labels_=num_labels)
-model.roberta.load_state_dict(roberta_pretrained.state_dict())
+if args.init_checkpoint:
+    model.load_state_dict(torch.load(args.init_checkpoint, map_location=device))
+    logger.info("Loaded full model state (encoder+CRF+classifier) from %s", args.init_checkpoint)
+else:
+    model.roberta.load_state_dict(roberta_pretrained.state_dict())
 model.to(device)
 if n_gpu > 1:
     model = torch.nn.DataParallel(model)

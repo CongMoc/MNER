@@ -161,6 +161,8 @@ cython_debug/
 
 sample_data/*
 data/*
+data_export/
+generated-external-context-and-staff-images.ipynb
 cache/*
 resnet152.pth
 train_bert_model
