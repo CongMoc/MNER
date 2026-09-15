@@ -162,12 +162,12 @@ cython_debug/
 sample_data/*
 data/*
 data_export/
-generated-external-context-and-staff-images.ipynb
 cache/*
 resnet152.pth
 train_bert_model
 models
 output
+output.zip
 *.png
 results_export
 .secrets/
@@ -176,3 +176,14 @@ scripts/gen_external_context/data/
 scripts/gen_external_context/output/
 .claude
 scripts/*
+.venv_local_eval/
+scratch_*.py
+scratch_*.json
+*.bak
+output *
+results_data_eficieny
+results_task5_ablation/
+downloaded_results/
+local_ckpt/
+ita/results/
+*.ipynb

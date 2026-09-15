@@ -1,0 +1,27 @@
+# ITA (arXiv:2112.06482) hyperparameters. Every value here is exactly what the
+# paper/spec calls for -- see train.py for where each one is read.
+model:
+  encoder_name: xlm-roberta-large
+  dropout: 0.1
+  cache_dir: cache
+
+data:
+  data_dir: ../data_export/newsmner_local_eval   # train/dev/test.txt, IMGID + tab-separated token/label
+  visual_contexts_path: ./visual_contexts.json    # produced by preprocess_visual_contexts.py
+  max_seq_length: 512
+
+training:
+  train_batch_size: 4
+  eval_batch_size: 16
+  num_epochs: 10
+  lr_encoder: 5.0e-6
+  lr_crf: 0.05          # paper says search in [0.005, 0.05]; this is the upper end,
+                        # matching the CRF lr already used elsewhere in this repo (5e-2)
+  weight_decay: 0.01
+  warmup_proportion: 0.1
+  gradient_accumulation_steps: 1
+  seed: 37
+  num_seeds: 5          # report average F1 over this many seeds (seed, seed+1, ...)
+
+output:
+  output_dir: ./results/ita

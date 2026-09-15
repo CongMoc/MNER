@@ -49,7 +49,12 @@ parser.add_argument('--seed', type=int, default=37)
 parser.add_argument('--gradient_accumulation_steps', type=int, default=1)
 args = parser.parse_args()
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")  # Apple Silicon, for local runs without a CUDA GPU
+else:
+    device = torch.device("cpu")
 n_gpu = torch.cuda.device_count()
 logger.info("device: %s n_gpu: %d", device, n_gpu)
 
