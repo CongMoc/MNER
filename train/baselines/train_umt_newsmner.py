@@ -116,6 +116,12 @@ parser.add_argument('--fine_tune_cnn', action='store_true', help='fine tune pre-
 parser.add_argument('--resnet_root', default='./out_res', help='dir with resnet152.pth')
 parser.add_argument('--crop_size', type=int, default=224)
 parser.add_argument('--path_image', required=True, help='path to NewsMNER images ({IMGID}.jpg)')
+parser.add_argument('--image_source', default='crawled', choices=['crawled', 'random', 'blank', 'generated'],
+                    help="'crawled' uses each example's correct IMGID-matched image; "
+                         "'random' (ablation) fixes each example to a randomly-chosen real image instead; "
+                         "'blank' (ablation) uses the same neutral background.jpg for every example; "
+                         "'generated' (ablation) uses a pre-generated (e.g. text-to-image) image per example, "
+                         "looked up as path_image/{guid}.jpg")
 args = parser.parse_args()
 
 processors = {"newsmner": MNERProcessor}
@@ -227,12 +233,19 @@ output_model_file = os.path.join(args.output_dir, WEIGHTS_NAME)
 output_config_file = os.path.join(args.output_dir, CONFIG_NAME)
 output_encoder_file = os.path.join(args.output_dir, "pytorch_encoder.bin")
 
+cache_suffix = "" if args.image_source == "crawled" else f"_{args.image_source}"
+use_random_image = args.image_source == "random"
+use_blank_image = args.image_source == "blank"
+use_generated_image = args.image_source == "generated"
+
 if args.do_train:
-    train_dataloader_save_path = args.data_dir + "/train_dataloader_dataset.pth"
-    dev_dataloader_save_path = args.data_dir + "/dev_dataloader_dataset.pth"
+    train_dataloader_save_path = args.data_dir + f"/train_dataloader_dataset{cache_suffix}.pth"
+    dev_dataloader_save_path = args.data_dir + f"/dev_dataloader_dataset{cache_suffix}.pth"
     if not os.path.exists(train_dataloader_save_path):
         train_features = convert_mm_examples_to_features(
-            train_examples, label_list, auxlabel_list, args.max_seq_length, tokenizer, args.crop_size, args.path_image)
+            train_examples, label_list, auxlabel_list, args.max_seq_length, tokenizer, args.crop_size, args.path_image,
+            random_image_source=use_random_image, random_seed=args.seed, blank_image_source=use_blank_image,
+            generated_image_source=use_generated_image)
         all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
         all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
         all_added_input_mask = torch.tensor([f.added_input_mask for f in train_features], dtype=torch.long)
@@ -252,7 +265,9 @@ if args.do_train:
     dev_eval_examples = processor.get_dev_examples(args.data_dir)
     if not os.path.exists(dev_dataloader_save_path):
         dev_eval_features = convert_mm_examples_to_features(
-            dev_eval_examples, label_list, auxlabel_list, args.max_seq_length, tokenizer, args.crop_size, args.path_image)
+            dev_eval_examples, label_list, auxlabel_list, args.max_seq_length, tokenizer, args.crop_size, args.path_image,
+            random_image_source=use_random_image, random_seed=args.seed, blank_image_source=use_blank_image,
+            generated_image_source=use_generated_image)
         all_input_ids = torch.tensor([f.input_ids for f in dev_eval_features], dtype=torch.long)
         all_input_mask = torch.tensor([f.input_mask for f in dev_eval_features], dtype=torch.long)
         all_added_input_mask = torch.tensor([f.added_input_mask for f in dev_eval_features], dtype=torch.long)
@@ -368,10 +383,12 @@ if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0)
     trans_matrix_t = torch.tensor(trans_matrix).to(device)
 
     eval_examples = processor.get_test_examples(args.data_dir)
-    test_dataloader_save_path = args.data_dir + "/test_dataloader_dataset.pth"
+    test_dataloader_save_path = args.data_dir + f"/test_dataloader_dataset{cache_suffix}.pth"
     if not os.path.exists(test_dataloader_save_path):
         eval_features = convert_mm_examples_to_features(
-            eval_examples, label_list, auxlabel_list, args.max_seq_length, tokenizer, args.crop_size, args.path_image)
+            eval_examples, label_list, auxlabel_list, args.max_seq_length, tokenizer, args.crop_size, args.path_image,
+            random_image_source=use_random_image, random_seed=args.seed, blank_image_source=use_blank_image,
+            generated_image_source=use_generated_image)
         all_input_ids = torch.tensor([f.input_ids for f in eval_features], dtype=torch.long)
         all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
         all_added_input_mask = torch.tensor([f.added_input_mask for f in eval_features], dtype=torch.long)
