@@ -61,7 +61,7 @@ def sbreadfile(filename):
     a = 0
     for line in f:
         if line.startswith('IMGID:'):
-            imgid = line.strip().split('IMGID:')[1] + '.jpg'
+            imgid = line.strip().split('IMGID:')[1].strip() + '.jpg'
             continue
 
         if line[0] == "\n":
