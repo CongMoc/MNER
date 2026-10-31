@@ -174,7 +174,8 @@ if args.server_ip and args.server_port:
 processors = {
     "twitter2015": MNERProcessor,
     "twitter2017": MNERProcessor,
-    "sonba": MNERProcessor
+    "sonba": MNERProcessor,
+    "newsmner": MNERProcessor,
 }
 
 if args.local_rank == -1 or args.no_cuda:
