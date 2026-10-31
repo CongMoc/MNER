@@ -217,7 +217,8 @@ if args.do_train:
     logger.info("Best epoch: %s, best dev F1: %s", best_dev_epoch, max_dev_f1)
 
 if args.do_eval:
-    model.load_state_dict(torch.load(output_model_file, map_location=device))
+    model_to_load = model.module if hasattr(model, 'module') else model
+    model_to_load.load_state_dict(torch.load(output_model_file, map_location=device))
     model.to(device)
     eval_data = make_dataset(processor.get_test_examples(args.data_dir))
     eval_dataloader = DataLoader(eval_data, sampler=SequentialSampler(eval_data), batch_size=args.eval_batch_size)

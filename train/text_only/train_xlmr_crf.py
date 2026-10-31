@@ -188,10 +188,11 @@ if args.do_train:
     logger.info("Best epoch: %s, best dev F1: %s", best_dev_epoch, max_dev_f1)
 
 if args.do_eval:
-    model.load_state_dict(torch.load(output_model_file, map_location=device))
+    model_to_load = model.module if hasattr(model, 'module') else model
+    model_to_load.load_state_dict(torch.load(output_model_file, map_location=device))
     model.to(device)
     model.eval()
-    eval_model = model.module if hasattr(model, 'module') else model
+    eval_model = model_to_load
 
     eval_data_dir = args.eval_data_dir or args.data_dir
     eval_examples = processor.get_test_examples(eval_data_dir)
