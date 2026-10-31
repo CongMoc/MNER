@@ -187,3 +187,4 @@ downloaded_results/
 local_ckpt/
 ita/results/
 *.ipynb
+.staging/

@@ -151,11 +151,12 @@ if args.do_train:
         logger.info(f"===============Main loss: {tr_loss/nb_tr_steps}===============")
 
         model.eval()
+        eval_model = model.module if hasattr(model, 'module') else model
         y_true, y_pred, y_true_idx, y_pred_idx = [], [], [], []
         for input_ids, input_mask, segment_ids, label_ids in tqdm(dev_dataloader, desc="Evaluating"):
             input_ids, input_mask, segment_ids = input_ids.to(device), input_mask.to(device), segment_ids.to(device)
             with torch.no_grad():
-                pred_tags = model(input_ids, segment_ids, input_mask, labels=None)
+                pred_tags = eval_model(input_ids, segment_ids, input_mask, labels=None)
             label_ids_np = label_ids.numpy()
             input_mask_np = input_mask.to('cpu').numpy()
             for i, mask in enumerate(input_mask_np):
@@ -190,6 +191,7 @@ if args.do_eval:
     model.load_state_dict(torch.load(output_model_file, map_location=device))
     model.to(device)
     model.eval()
+    eval_model = model.module if hasattr(model, 'module') else model
 
     eval_data_dir = args.eval_data_dir or args.data_dir
     eval_examples = processor.get_test_examples(eval_data_dir)
@@ -205,7 +207,7 @@ if args.do_eval:
     for input_ids, input_mask, segment_ids, label_ids in tqdm(eval_dataloader, desc="Evaluating"):
         input_ids, input_mask, segment_ids = input_ids.to(device), input_mask.to(device), segment_ids.to(device)
         with torch.no_grad():
-            pred_tags = model(input_ids, segment_ids, input_mask, labels=None)
+            pred_tags = eval_model(input_ids, segment_ids, input_mask, labels=None)
         label_ids_np = label_ids.numpy()
         input_mask_np = input_mask.to('cpu').numpy()
         for i, mask in enumerate(input_mask_np):
