@@ -52,7 +52,9 @@ class VLMNERDataset(Dataset):
         prompt_enc = self.processor(text=[prompt_text], images=[image], return_tensors='pt')
 
         input_ids = full_enc['input_ids'][0][:self.max_length]
-        mm_token_type_ids = full_enc['mm_token_type_ids'][0][:self.max_length]
+        raw_mm = full_enc.get('mm_token_type_ids')
+        mm_token_type_ids = (raw_mm[0][:self.max_length] if raw_mm is not None
+                             else torch.zeros_like(input_ids))
         prefix_len = min(prompt_enc['input_ids'].shape[1], input_ids.shape[0])
 
         labels = input_ids.clone()
@@ -148,7 +150,7 @@ if __name__ == '__main__':
         per_device_eval_batch_size=args.train_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         learning_rate=args.learning_rate,
-        warmup_steps=0.1,  # float < 1 -> interpreted as ratio of total training steps
+        warmup_ratio=0.1,  # warmup_steps requires an int; warmup_ratio is the float-ratio param
         logging_steps=20,
         eval_strategy="epoch",
         save_strategy="epoch",
