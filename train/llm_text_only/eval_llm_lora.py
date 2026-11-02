@@ -32,8 +32,10 @@ if __name__ == '__main__':
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = 'left'
 
+    use_bf16 = torch.cuda.is_bf16_supported()
     base_model = AutoModelForCausalLM.from_pretrained(
-        args.model_name, cache_dir=args.cache_dir, torch_dtype=torch.bfloat16, device_map="auto")
+        args.model_name, cache_dir=args.cache_dir,
+        torch_dtype=torch.bfloat16 if use_bf16 else torch.float16, device_map="auto")
     model = PeftModel.from_pretrained(base_model, args.adapter_dir)
     model.eval()
 

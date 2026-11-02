@@ -37,8 +37,10 @@ if __name__ == '__main__':
 
     processor = AutoProcessor.from_pretrained(
         args.model_name, cache_dir=args.cache_dir, min_pixels=256 * 28 * 28, max_pixels=1024 * 28 * 28)
+    use_bf16 = torch.cuda.is_bf16_supported()
     model = Qwen2VLForConditionalGeneration.from_pretrained(
-        args.model_name, cache_dir=args.cache_dir, torch_dtype=torch.bfloat16, device_map="auto")
+        args.model_name, cache_dir=args.cache_dir,
+        torch_dtype=torch.bfloat16 if use_bf16 else torch.float16, device_map="auto")
     if args.adapter_dir:
         from peft import PeftModel
         model = PeftModel.from_pretrained(model, args.adapter_dir)
