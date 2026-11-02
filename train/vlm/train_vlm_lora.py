@@ -126,8 +126,10 @@ if __name__ == '__main__':
     if processor.tokenizer.pad_token is None:
         processor.tokenizer.pad_token = processor.tokenizer.eos_token
 
+    use_bf16 = torch.cuda.is_bf16_supported()
     model = Qwen2VLForConditionalGeneration.from_pretrained(
-        args.model_name, cache_dir=args.cache_dir, torch_dtype=torch.bfloat16, device_map="auto")
+        args.model_name, cache_dir=args.cache_dir,
+        torch_dtype=torch.bfloat16 if use_bf16 else torch.float16, device_map="auto")
     model.config.pad_token_id = processor.tokenizer.pad_token_id
 
     lora_config = LoraConfig(
@@ -157,7 +159,8 @@ if __name__ == '__main__':
         save_total_limit=1,
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
-        bf16=True,
+        bf16=use_bf16,
+        fp16=not use_bf16,
         seed=args.seed,
         report_to=[],
         remove_unused_columns=False,
