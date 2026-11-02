@@ -52,9 +52,6 @@ class VLMNERDataset(Dataset):
         prompt_enc = self.processor(text=[prompt_text], images=[image], return_tensors='pt')
 
         input_ids = full_enc['input_ids'][0][:self.max_length]
-        raw_mm = full_enc.get('mm_token_type_ids')
-        mm_token_type_ids = (raw_mm[0][:self.max_length] if raw_mm is not None
-                             else torch.zeros_like(input_ids))
         prefix_len = min(prompt_enc['input_ids'].shape[1], input_ids.shape[0])
 
         labels = input_ids.clone()
@@ -63,7 +60,6 @@ class VLMNERDataset(Dataset):
         return {
             'input_ids': input_ids,
             'labels': labels,
-            'mm_token_type_ids': mm_token_type_ids,
             'pixel_values': full_enc['pixel_values'],
             'image_grid_thw': full_enc['image_grid_thw'][0],
         }
@@ -75,21 +71,17 @@ class VLMCollator:
 
     def __call__(self, batch):
         max_len = max(x['input_ids'].shape[0] for x in batch)
-        input_ids, labels, attn, mm_token_type_ids = [], [], [], []
+        input_ids, labels, attn = [], [], []
         for x in batch:
             n_pad = max_len - x['input_ids'].shape[0]
             input_ids.append(torch.cat([x['input_ids'], torch.full((n_pad,), self.pad_token_id, dtype=torch.long)]))
             labels.append(torch.cat([x['labels'], torch.full((n_pad,), IGNORE_INDEX, dtype=torch.long)]))
             attn.append(torch.cat([torch.ones(x['input_ids'].shape[0], dtype=torch.long), torch.zeros(n_pad, dtype=torch.long)]))
-            # pad with 0 (text-token type) -- padding positions carry no image content and are
-            # already excluded from attention via attention_mask
-            mm_token_type_ids.append(torch.cat([x['mm_token_type_ids'], torch.zeros(n_pad, dtype=torch.long)]))
 
         return {
             'input_ids': torch.stack(input_ids),
             'labels': torch.stack(labels),
             'attention_mask': torch.stack(attn),
-            'mm_token_type_ids': torch.stack(mm_token_type_ids),
             'pixel_values': torch.cat([x['pixel_values'] for x in batch], dim=0),
             'image_grid_thw': torch.stack([x['image_grid_thw'] for x in batch]),
         }
