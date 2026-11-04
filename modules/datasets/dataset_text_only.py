@@ -6,7 +6,10 @@ class TextOnlyFeatures(object):
         self.label_id = label_id
 
 
-def convert_text_examples_to_features(examples, label_list, max_seq_length, tokenizer):
+def convert_text_examples_to_features(examples, label_list, max_seq_length, tokenizer,
+                                       start_token="<s>", end_token="</s>"):
+    """start_token/end_token default to RoBERTa/XLM-R's <s>/</s>; pass "[CLS]"/"[SEP]"
+    for BERT-family tokenizers (e.g. mBERT), which use those special tokens instead."""
     label_map = {label: i for i, label in enumerate(label_list, 1)}
     features = []
 
@@ -28,9 +31,9 @@ def convert_text_examples_to_features(examples, label_list, max_seq_length, toke
             tokens = tokens[0:(max_seq_length - 2)]
             labels = labels[0:(max_seq_length - 2)]
 
-        ntokens = ["<s>"] + tokens + ["</s>"]
+        ntokens = [start_token] + tokens + [end_token]
         segment_ids = [0] * len(ntokens)
-        label_ids = [label_map["<s>"]] + [label_map[l] for l in labels] + [label_map["</s>"]]
+        label_ids = [label_map[start_token]] + [label_map[l] for l in labels] + [label_map[end_token]]
         input_ids = tokenizer.convert_tokens_to_ids(ntokens)
         input_mask = [1] * len(input_ids)
 
