@@ -1,9 +1,5 @@
 import os
 import sys
-# Force single-GPU: CRF decode() returns variable-length Python lists (not fixed-shape
-# tensors), which torch.nn.DataParallel's gather() cannot reduce across >1 GPU
-# ("TypeError: 'int' object is not iterable" during eval on multi-GPU Kaggle sessions).
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 import argparse
 import logging
