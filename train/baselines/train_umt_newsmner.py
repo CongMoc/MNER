@@ -30,7 +30,6 @@ import math
 import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import argparse
 
 import logging
@@ -314,6 +313,12 @@ if args.do_train:
 
         model.eval()
         encoder.eval()
+        # UMT's main-task head decodes via CRF (List[List[int]]), which
+        # torch.nn.DataParallel.gather() cannot reduce across multiple GPUs (crashes with
+        # "TypeError: 'int' object is not iterable"). Keep training on all GPUs via
+        # DataParallel, but unwrap to the underlying module for this eval-only forward pass,
+        # same fix already applied to train_xlmr_crf.py / the cross-attention baselines.
+        eval_model = model.module if hasattr(model, 'module') else model
         logger.info("***** Running Dev evaluation *****")
         y_true, y_pred, y_true_idx, y_pred_idx = [], [], [], []
         label_map = {i: label for i, label in enumerate(label_list, 1)}
@@ -325,7 +330,7 @@ if args.do_train:
                 segment_ids.to(device), img_feats.to(device), label_ids.to(device), auxlabel_ids.to(device))
             with torch.no_grad():
                 imgs_f, img_mean, img_att = encoder(img_feats)
-                predicted_label_seq_ids = model(input_ids, segment_ids, input_mask, added_input_mask,
+                predicted_label_seq_ids = eval_model(input_ids, segment_ids, input_mask, added_input_mask,
                                                 img_att, trans_matrix_t)
             logits = predicted_label_seq_ids
             label_ids = label_ids.to('cpu').numpy()
