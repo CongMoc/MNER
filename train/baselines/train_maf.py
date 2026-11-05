@@ -1,7 +1,6 @@
 import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import argparse
 
 import logging
@@ -175,7 +174,8 @@ if args.server_ip and args.server_port:
 processors = {
     "twitter2015": MNERProcessor,
     "twitter2017": MNERProcessor,
-    "sonba": MNERProcessor
+    "sonba": MNERProcessor,
+    "newsmner": MNERProcessor
 }
 
 if args.local_rank == -1 or args.no_cuda:
@@ -429,6 +429,13 @@ if args.do_train:
         model.eval()
         encoder.eval()
 
+        # CRF's .decode() returns a List[List[int]] (variable-length Viterbi paths),
+        # which torch.nn.DataParallel.gather() cannot reduce across multiple GPUs
+        # (crashes with "TypeError: 'int' object is not iterable"). Keep training on
+        # all GPUs via DataParallel, but unwrap to the underlying module for this
+        # eval-only forward pass, matching the fix already used in train_xlmr_crf.py.
+        eval_model = model.module if hasattr(model, 'module') else model
+
         logger.info("***** Running Dev evaluation *****")
         logger.info("  Num examples = %d", len(dev_eval_examples))
         logger.info("  Batch size = %d", args.eval_batch_size)
@@ -450,7 +457,7 @@ if args.do_train:
 
             with torch.no_grad():
                 imgs_f, img_mean, img_att = encoder(img_feats)
-                predicted_label_seq_ids = model(input_ids, segment_ids, input_mask, added_input_mask,imgs_f, img_att)
+                predicted_label_seq_ids = eval_model(input_ids, segment_ids, input_mask, added_input_mask,imgs_f, img_att)
 
             logits = predicted_label_seq_ids
             label_ids = label_ids.to('cpu').numpy()

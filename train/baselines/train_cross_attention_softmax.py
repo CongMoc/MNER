@@ -1,7 +1,6 @@
 import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import argparse
 
 import logging
@@ -174,7 +173,8 @@ if args.server_ip and args.server_port:
 processors = {
     "twitter2015": MNERProcessor,
     "twitter2017": MNERProcessor,
-    "sonba": MNERProcessor
+    "sonba": MNERProcessor,
+    "newsmner": MNERProcessor
 }
 
 if args.local_rank == -1 or args.no_cuda:
