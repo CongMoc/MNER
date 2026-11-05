@@ -1,8 +1,10 @@
 import os
 import sys
+import inspect
 import argparse
 
 import torch
+import transformers
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
 from peft import LoraConfig, get_peft_model
@@ -109,7 +111,9 @@ if __name__ == '__main__':
     dev_ds = NERSFTDataset(dev_rows, tokenizer, system_prompt, args.max_length)
     collator = Collator(tokenizer.pad_token_id)
 
-    training_args = TrainingArguments(
+    print(f"transformers version: {transformers.__version__}")
+
+    ta_kwargs = dict(
         output_dir=args.output_dir,
         num_train_epochs=args.num_train_epochs,
         per_device_train_batch_size=args.train_batch_size,
@@ -128,6 +132,20 @@ if __name__ == '__main__':
         seed=args.seed,
         report_to=[],
     )
+    # Khac ban transformers co the doi ten/bo tham so (vd eval_strategy <-> evaluation_strategy,
+    # hoac warmup_ratio khong co o ban rat cu/rat moi khac thuong). Loc theo signature thuc te
+    # de khong crash ngay tu dau vi 1 tham so khong ho tro.
+    valid_params = set(inspect.signature(TrainingArguments.__init__).parameters)
+    if "eval_strategy" not in valid_params and "evaluation_strategy" in valid_params:
+        ta_kwargs["evaluation_strategy"] = ta_kwargs.pop("eval_strategy")
+    unsupported = [k for k in ta_kwargs if k not in valid_params]
+    if unsupported:
+        print(f"TrainingArguments (transformers {transformers.__version__}) khong ho tro: "
+              f"{unsupported} -- bo qua cac tham so nay.")
+        for k in unsupported:
+            ta_kwargs.pop(k)
+
+    training_args = TrainingArguments(**ta_kwargs)
 
     trainer = Trainer(
         model=model,
