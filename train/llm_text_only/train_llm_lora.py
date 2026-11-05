@@ -132,12 +132,16 @@ if __name__ == '__main__':
         seed=args.seed,
         report_to=[],
     )
-    # Khac ban transformers co the doi ten/bo tham so (vd eval_strategy <-> evaluation_strategy,
-    # hoac warmup_ratio khong co o ban rat cu/rat moi khac thuong). Loc theo signature thuc te
-    # de khong crash ngay tu dau vi 1 tham so khong ho tro.
+    # Khac ban transformers co the doi ten tham so:
+    # - v4.41+: eval_strategy; ban cu hon dung evaluation_strategy.
+    # - v5+: warmup_ratio bi deprecate/bo, thay bang warmup_steps (float <1 = ty le,
+    #   tuong duong warmup_ratio cu). Phai MAP sang warmup_steps, khong duoc bo qua,
+    #   neu khong model se chay voi 0 warmup step (sai thiet ke ban dau).
     valid_params = set(inspect.signature(TrainingArguments.__init__).parameters)
     if "eval_strategy" not in valid_params and "evaluation_strategy" in valid_params:
         ta_kwargs["evaluation_strategy"] = ta_kwargs.pop("eval_strategy")
+    if "warmup_ratio" not in valid_params and "warmup_steps" in valid_params:
+        ta_kwargs["warmup_steps"] = ta_kwargs.pop("warmup_ratio")
     unsupported = [k for k in ta_kwargs if k not in valid_params]
     if unsupported:
         print(f"TrainingArguments (transformers {transformers.__version__}) khong ho tro: "
