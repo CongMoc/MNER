@@ -1,7 +1,6 @@
 import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import argparse
 
 import logging
@@ -255,7 +254,7 @@ else:
     print('please define your MNER Model')
 
 net = getattr(resnet, 'resnet152')()
-net.load_state_dict(torch.load(os.path.join(args.resnet_root, 'resnet152.pth')))
+net.load_state_dict(torch.load(os.path.join(args.resnet_root, 'resnet152.pth'), weights_only=False))
 encoder = myResnet(net, args.fine_tune_cnn, device)
 
 if args.fp16:
@@ -409,6 +408,7 @@ if args.do_train:
 
         model.eval()
         encoder.eval()
+        eval_model = model.module if hasattr(model, 'module') else model
 
         logger.info("***** Running Dev evaluation *****")
         logger.info("  Num examples = %d", len(dev_eval_examples))
@@ -431,7 +431,7 @@ if args.do_train:
 
             with torch.no_grad():
                 imgs_f, img_mean, img_att = encoder(img_feats)
-                predicted_label_seq_ids = model(input_ids, segment_ids, input_mask, added_input_mask,imgs_f, img_att)
+                predicted_label_seq_ids = eval_model(input_ids, segment_ids, input_mask, added_input_mask,imgs_f, img_att)
 
             logits = predicted_label_seq_ids
             label_ids = label_ids.to('cpu').numpy()
@@ -528,6 +528,7 @@ if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0)
     eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
     model.eval()
     encoder.eval()
+    eval_model = model.module if hasattr(model, 'module') else model
     eval_loss, eval_accuracy = 0, 0
     nb_eval_steps, nb_eval_examples = 0, 0
     y_true = []
@@ -548,7 +549,7 @@ if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0)
 
         with torch.no_grad():
             imgs_f, img_mean, img_att = encoder(img_feats)
-            predicted_label_seq_ids = model(input_ids, segment_ids, input_mask, added_input_mask,imgs_f, img_att)
+            predicted_label_seq_ids = eval_model(input_ids, segment_ids, input_mask, added_input_mask,imgs_f, img_att)
 
         logits = predicted_label_seq_ids
         label_ids = label_ids.to('cpu').numpy()
