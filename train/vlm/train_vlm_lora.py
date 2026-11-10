@@ -137,6 +137,13 @@ if __name__ == '__main__':
     )
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
+    # Gradient checkpointing trades compute for VRAM -- needed here because a VLM's image
+    # activations (up to ~768 image tokens/sample on top of the text) push peak memory close
+    # to the GPU's full capacity even at batch_size=2, causing CUDA allocator fragmentation/
+    # defrag stalls (periodic 90s+ step spikes observed on a 32GB GPU at ~32GB used).
+    # enable_input_require_grads() is required alongside it for a PEFT-wrapped (frozen base
+    # model) forward pass to actually backprop through the checkpointed layers.
+    model.enable_input_require_grads()
 
     train_rows = load_jsonl(os.path.join(args.data_dir, 'train.jsonl'))
     dev_rows = load_jsonl(os.path.join(args.data_dir, 'dev.jsonl'))
@@ -166,6 +173,8 @@ if __name__ == '__main__':
         report_to=[],
         remove_unused_columns=False,
         dataloader_num_workers=args.dataloader_num_workers,
+        gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
     )
     # Khac ban transformers co the doi ten tham so (xem train_llm_lora.py):
     # - v4.41+: eval_strategy; ban cu hon dung evaluation_strategy.
