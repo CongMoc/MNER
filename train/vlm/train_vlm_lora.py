@@ -105,7 +105,12 @@ if __name__ == '__main__':
                      help='parallel workers for image loading/preprocessing; each __getitem__ '
                           'runs the Qwen2VL processor over the image twice (full + prompt-only '
                           'encode, to locate the response prefix for loss masking), which is CPU-bound '
-                          'and single-threaded by default -- set >0 to use multiple cores')
+                          'and single-threaded by default -- set >0 to use multiple cores. Paired with '
+                          'dataloader_persistent_workers=True below: without that, Trainer tears down '
+                          'and respawns all workers at every epoch/eval boundary, and on Windows '
+                          '(spawn, not fork) each respawn re-imports torch/transformers/peft from '
+                          'scratch per worker -- confirmed via py-spy stack trace to be the actual '
+                          'cause of repeated 90-120s+ stalls on a real run, not GPU/VRAM contention.')
     ap.add_argument('--seed', type=int, default=37)
     ap.add_argument('--cache_dir', default='cache')
     args = ap.parse_args()
@@ -173,6 +178,7 @@ if __name__ == '__main__':
         report_to=[],
         remove_unused_columns=False,
         dataloader_num_workers=args.dataloader_num_workers,
+        dataloader_persistent_workers=args.dataloader_num_workers > 0,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
     )
