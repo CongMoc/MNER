@@ -1,8 +1,10 @@
 import os
 import sys
+import inspect
 import argparse
 
 import torch
+import transformers
 from PIL import Image
 from torch.utils.data import Dataset
 from transformers import Qwen2VLForConditionalGeneration, AutoProcessor, Trainer, TrainingArguments
@@ -137,14 +139,16 @@ if __name__ == '__main__':
     dev_ds = VLMNERDataset(dev_rows, processor, system_prompt, args.image_dir, args.max_length)
     collator = VLMCollator(processor.tokenizer.pad_token_id)
 
-    training_args = TrainingArguments(
+    print(f"transformers version: {transformers.__version__}")
+
+    ta_kwargs = dict(
         output_dir=args.output_dir,
         num_train_epochs=args.num_train_epochs,
         per_device_train_batch_size=args.train_batch_size,
         per_device_eval_batch_size=args.train_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         learning_rate=args.learning_rate,
-        warmup_ratio=0.1,  # warmup_steps requires an int; warmup_ratio is the float-ratio param
+        warmup_ratio=0.1,
         logging_steps=20,
         eval_strategy="epoch",
         save_strategy="epoch",
@@ -157,6 +161,22 @@ if __name__ == '__main__':
         report_to=[],
         remove_unused_columns=False,
     )
+    # Khac ban transformers co the doi ten tham so (xem train_llm_lora.py):
+    # - v4.41+: eval_strategy; ban cu hon dung evaluation_strategy.
+    # - v5+: warmup_ratio bi deprecate/bo, thay bang warmup_steps (float <1 = ty le).
+    valid_params = set(inspect.signature(TrainingArguments.__init__).parameters)
+    if "eval_strategy" not in valid_params and "evaluation_strategy" in valid_params:
+        ta_kwargs["evaluation_strategy"] = ta_kwargs.pop("eval_strategy")
+    if "warmup_ratio" not in valid_params and "warmup_steps" in valid_params:
+        ta_kwargs["warmup_steps"] = ta_kwargs.pop("warmup_ratio")
+    unsupported = [k for k in ta_kwargs if k not in valid_params]
+    if unsupported:
+        print(f"TrainingArguments (transformers {transformers.__version__}) khong ho tro: "
+              f"{unsupported} -- bo qua cac tham so nay.")
+        for k in unsupported:
+            ta_kwargs.pop(k)
+
+    training_args = TrainingArguments(**ta_kwargs)
 
     trainer = Trainer(
         model=model,
