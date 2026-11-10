@@ -101,6 +101,11 @@ if __name__ == '__main__':
     ap.add_argument('--gradient_accumulation_steps', type=int, default=8)
     ap.add_argument('--learning_rate', type=float, default=1e-4)
     ap.add_argument('--max_length', type=int, default=1536)
+    ap.add_argument('--dataloader_num_workers', type=int, default=0,
+                     help='parallel workers for image loading/preprocessing; each __getitem__ '
+                          'runs the Qwen2VL processor over the image twice (full + prompt-only '
+                          'encode, to locate the response prefix for loss masking), which is CPU-bound '
+                          'and single-threaded by default -- set >0 to use multiple cores')
     ap.add_argument('--seed', type=int, default=37)
     ap.add_argument('--cache_dir', default='cache')
     args = ap.parse_args()
@@ -160,6 +165,7 @@ if __name__ == '__main__':
         seed=args.seed,
         report_to=[],
         remove_unused_columns=False,
+        dataloader_num_workers=args.dataloader_num_workers,
     )
     # Khac ban transformers co the doi ten tham so (xem train_llm_lora.py):
     # - v4.41+: eval_strategy; ban cu hon dung evaluation_strategy.
