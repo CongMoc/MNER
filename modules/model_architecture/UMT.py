@@ -175,7 +175,6 @@ class UMT(RobertaPreTrainedModel):
         super(UMT, self).__init__(config)
         self.num_labels = num_labels_
         self.roberta = RobertaModel(config)
-        #self.trans_matrix = torch.zeros(num_labels, auxnum_labels)
         self.self_attention = RobertaSelfEncoder(config)
         self.self_attention_v2 = RobertaSelfEncoder(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
@@ -192,11 +191,23 @@ class UMT(RobertaPreTrainedModel):
         self.crf = CRF(num_labels_, batch_first=True)
         self.aux_crf = CRF(auxnum_labels, batch_first=True)
 
+        # trans_matrix used to be a forward() argument (set below), but a plain tensor argument
+        # is not what nn.DataParallel expects: DataParallel.scatter() splits every positional
+        # tensor arg along dim 0 as if it were the batch, which silently corrupts this constant
+        # (auxnum_labels, num_labels) matrix across multi-GPU replicas (e.g. shape (7, 17) -> a
+        # wrong (4, 17) slice on one GPU) -- "RuntimeError: mat1 and mat2 shapes cannot be
+        # multiplied". A registered buffer is replicated correctly per device instead.
+        # persistent=False: this is rebuilt deterministically from label_list/auxlabel_list by
+        # the training script (see build_trans_matrix() in train_umt_newsmner.py) and reassigned
+        # right after construction, so it does not need to be saved in/loaded from checkpoints.
+        self.register_buffer(
+            "trans_matrix", torch.zeros(auxnum_labels, num_labels_, dtype=torch.float), persistent=False)
+
         self.init_weights()
 
     # this forward is just for predict, not for train
     # dont confuse this with _forward_alg above.
-    def forward(self, input_ids, segment_ids, input_mask, added_attention_mask, visual_embeds_att, trans_matrix,
+    def forward(self, input_ids, segment_ids, input_mask, added_attention_mask, visual_embeds_att,
                 labels=None, auxlabels=None):
         # Get the emission scores from the BiLSTM
         features = self.roberta(input_ids, token_type_ids=segment_ids, attention_mask=input_mask)  # batch_size * seq_len * hidden_size
@@ -218,7 +229,7 @@ class UMT(RobertaPreTrainedModel):
         aux_addon_sequence_output = aux_addon_sequence_output[0]
         aux_bert_feats = self.aux_classifier(aux_addon_sequence_output)
         #######aux_bert_feats = self.aux_classifier(sequence_output)
-        trans_bert_feats = torch.matmul(aux_bert_feats, trans_matrix.float())
+        trans_bert_feats = torch.matmul(aux_bert_feats, self.trans_matrix.float())
 
         main_addon_sequence_encoder = self.self_attention_v2(sequence_output, extended_txt_mask)
         main_addon_sequence_output = main_addon_sequence_encoder[-1]

@@ -38,6 +38,7 @@ import numpy as np
 import torch
 from transformers import AutoTokenizer, RobertaConfig
 from modules.model_architecture.UMT import UMT
+from modules.model_architecture.UMT_balanced import UMTBalanced
 from modules.resnet import resnet as resnet
 from modules.resnet.resnet_utils import myResnet
 from modules.datasets.dataset_roberta_main import convert_mm_examples_to_features, MNERProcessor
@@ -112,6 +113,18 @@ parser.add_argument('--layer_num1', type=int, default=1, help='number of txt2img
 parser.add_argument('--layer_num2', type=int, default=1, help='number of img2txt layers')
 parser.add_argument('--layer_num3', type=int, default=1, help='number of txt2txt layers')
 parser.add_argument('--fine_tune_cnn', action='store_true', help='fine tune pre-trained ResNet if True')
+parser.add_argument('--model_variant', default='original', choices=['original', 'balanced'],
+                    help="'original' = paper UMT (text branch always full, image branch gated, "
+                         "fixed 50/50 main/aux mix). 'balanced' = UMTBalanced: symmetric gate "
+                         "(can suppress EITHER branch) + learned main/aux mix, so training itself "
+                         "decides the text/image split instead of the architecture assuming one.")
+parser.add_argument('--aux_loss_weight', default=0.5, type=float,
+                    help="beta: weight of the text-only auxiliary CRF loss. Only used by "
+                         "--model_variant balanced (original hardcodes 0.5 in UMT.py).")
+parser.add_argument('--resnet_lr_factor', default=0.1, type=float,
+                    help="ResNet fine-tune LR = learning_rate * this factor (only used when "
+                         "--fine_tune_cnn is set). Pretrained ImageNet features are fragile; "
+                         "the default 0.1 (lr/10) avoids wrecking them in the first epoch.")
 parser.add_argument('--resnet_root', default='./out_res', help='dir with resnet152.pth')
 parser.add_argument('--crop_size', type=int, default=224)
 parser.add_argument('--path_image', required=True, help='path to NewsMNER images ({IMGID}.jpg)')
@@ -194,9 +207,16 @@ if args.do_train:
 
 config = RobertaConfig.from_pretrained(args.bert_model, cache_dir='cache')
 roberta_pretrained = RobertaModel.from_pretrained(args.bert_model, cache_dir='cache')
-model = UMT(config, layer_num1=args.layer_num1, layer_num2=args.layer_num2, layer_num3=args.layer_num3,
-            num_labels_=num_labels, auxnum_labels=auxnum_labels)
+if args.model_variant == 'balanced':
+    model = UMTBalanced(config, layer_num1=args.layer_num1, layer_num2=args.layer_num2, layer_num3=args.layer_num3,
+                num_labels_=num_labels, auxnum_labels=auxnum_labels, aux_loss_weight=args.aux_loss_weight)
+else:
+    model = UMT(config, layer_num1=args.layer_num1, layer_num2=args.layer_num2, layer_num3=args.layer_num3,
+                num_labels_=num_labels, auxnum_labels=auxnum_labels)
 model.roberta.load_state_dict(roberta_pretrained.state_dict())
+# Set before model.to(device)/DataParallel wrap below so both carry it along correctly (see
+# the trans_matrix buffer registered in UMT.__init__ for why this isn't a forward() argument).
+model.trans_matrix = torch.tensor(trans_matrix, dtype=torch.float)
 
 net = getattr(resnet, 'resnet152')()
 net.load_state_dict(torch.load(os.path.join(args.resnet_root, 'resnet152.pth'), weights_only=False))
@@ -224,6 +244,17 @@ optimizer_grouped_parameters = [
      'weight_decay': 0.0},
     {'params': [p for n, p in param_optimizer if 'crf' in n], 'lr': 1.0e-2, 'weight_decay': 0.0},
 ]
+# encoder (ResNet-152) params were NEVER in the optimizer before -- myResnet's if_fine_tune only
+# toggled a .detach() inside a call site that's wrapped in torch.no_grad() anyway (see the training
+# loop below), so --fine_tune_cnn silently did nothing. Only add them, and only drop the no_grad()
+# wrapper below, when the flag is actually set -- default (no --fine_tune_cnn) behavior is unchanged.
+if args.fine_tune_cnn:
+    resnet_module = encoder.module.resnet if hasattr(encoder, 'module') else encoder.resnet
+    resnet_lr = args.learning_rate * args.resnet_lr_factor
+    optimizer_grouped_parameters.append(
+        {'params': list(resnet_module.parameters()), 'lr': resnet_lr, 'weight_decay': 0.01})
+    logger.info("fine_tune_cnn enabled: ResNet-152 added to optimizer, lr=%.2e (= %.2e * %.2f)",
+                resnet_lr, args.learning_rate, args.resnet_lr_factor)
 optimizer = BertAdam(optimizer_grouped_parameters, lr=args.learning_rate,
                      warmup=args.warmup_proportion, t_total=num_train_optimization_steps)
 
@@ -286,30 +317,49 @@ if args.do_train:
     max_dev_f1 = 0.0
     best_dev_epoch = 0
     logger.info("***** Running training *****")
-    trans_matrix_t = torch.tensor(trans_matrix).to(device)
+    gate_stats_file = os.path.join(args.output_dir, "gate_stats.jsonl") if args.model_variant == 'balanced' else None
     for train_idx in trange(int(args.num_train_epochs), desc="Epoch"):
         logger.info("********** Epoch: %d **********", train_idx)
         model.train()
         encoder.train()
         encoder.zero_grad()
+        gate_sum, gate_n, last_alpha = 0.0, 0, None
         for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
             batch = tuple(t.to(device) for t in batch)
             input_ids, input_mask, added_input_mask, segment_ids, img_feats, label_ids, auxlabel_ids = batch
-            with torch.no_grad():
+            if args.fine_tune_cnn:
                 imgs_f, img_mean, img_att = encoder(img_feats)
+            else:
+                with torch.no_grad():
+                    imgs_f, img_mean, img_att = encoder(img_feats)
 
             neg_log_likelihood = model(input_ids, segment_ids, input_mask, added_input_mask,
-                                        img_att, trans_matrix_t, label_ids, auxlabel_ids)
+                                        img_att, label_ids, auxlabel_ids)
             if n_gpu > 1:
                 neg_log_likelihood = neg_log_likelihood.mean()
             if args.gradient_accumulation_steps > 1:
                 neg_log_likelihood = neg_log_likelihood / args.gradient_accumulation_steps
             neg_log_likelihood.backward()
 
+            if args.model_variant == 'balanced':
+                m = model.module if hasattr(model, 'module') else model
+                if m.last_gate_mean is not None:
+                    gate_sum += m.last_gate_mean
+                    gate_n += 1
+                    last_alpha = m.last_alpha
+
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 optimizer.step()
                 optimizer.zero_grad()
                 global_step += 1
+
+        if gate_stats_file is not None and gate_n > 0:
+            gate_mean_epoch = gate_sum / gate_n
+            logger.info("***** Epoch %d image-gate stats: gate_mean=%.4f (0=pure text, 1=pure image) "
+                        "alpha=%.4f (main-branch weight; 1-alpha=aux text-only weight) *****",
+                        train_idx, gate_mean_epoch, last_alpha)
+            with open(gate_stats_file, "a") as gf:
+                gf.write(json.dumps({"epoch": train_idx, "gate_mean": gate_mean_epoch, "alpha": last_alpha}) + "\n")
 
         model.eval()
         encoder.eval()
@@ -331,7 +381,7 @@ if args.do_train:
             with torch.no_grad():
                 imgs_f, img_mean, img_att = encoder(img_feats)
                 predicted_label_seq_ids = eval_model(input_ids, segment_ids, input_mask, added_input_mask,
-                                                img_att, trans_matrix_t)
+                                                img_att)
             logits = predicted_label_seq_ids
             label_ids = label_ids.to('cpu').numpy()
             input_mask = input_mask.to('cpu').numpy()
@@ -379,13 +429,19 @@ if args.do_train:
 
 if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
     config = RobertaConfig.from_pretrained(args.bert_model, cache_dir='cache')
-    model = UMT(config, layer_num1=args.layer_num1, layer_num2=args.layer_num2, layer_num3=args.layer_num3,
-                num_labels_=num_labels, auxnum_labels=auxnum_labels)
+    if args.model_variant == 'balanced':
+        model = UMTBalanced(config, layer_num1=args.layer_num1, layer_num2=args.layer_num2, layer_num3=args.layer_num3,
+                    num_labels_=num_labels, auxnum_labels=auxnum_labels, aux_loss_weight=args.aux_loss_weight)
+    else:
+        model = UMT(config, layer_num1=args.layer_num1, layer_num2=args.layer_num2, layer_num3=args.layer_num3,
+                    num_labels_=num_labels, auxnum_labels=auxnum_labels)
+    # trans_matrix is a non-persistent buffer (see UMT.__init__), so it is never in the
+    # checkpoint and load_state_dict below does not need/expect it -- reassign explicitly.
+    model.trans_matrix = torch.tensor(trans_matrix, dtype=torch.float)
     model.load_state_dict(torch.load(output_model_file))
     model.to(device)
     encoder.load_state_dict(torch.load(output_encoder_file))
     encoder.to(device)
-    trans_matrix_t = torch.tensor(trans_matrix).to(device)
 
     eval_examples = processor.get_test_examples(args.data_dir)
     test_dataloader_save_path = args.data_dir + f"/test_dataloader_dataset{cache_suffix}.pth"
@@ -421,7 +477,7 @@ if args.do_eval and (args.local_rank == -1 or torch.distributed.get_rank() == 0)
         with torch.no_grad():
             imgs_f, img_mean, img_att = encoder(img_feats)
             predicted_label_seq_ids = model(input_ids, segment_ids, input_mask, added_input_mask,
-                                            img_att, trans_matrix_t)
+                                            img_att)
         logits = predicted_label_seq_ids
         label_ids = label_ids.to('cpu').numpy()
         input_mask = input_mask.to('cpu').numpy()
