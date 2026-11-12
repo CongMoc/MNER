@@ -204,7 +204,13 @@ class UMT(RobertaPreTrainedModel):
         sequence_output = self.dropout(sequence_output)
 
         extended_txt_mask = input_mask.unsqueeze(1).unsqueeze(2)
-        extended_txt_mask = extended_txt_mask.to(dtype=next(self.parameters()).dtype) # fp16 compatibility
+        # sequence_output.dtype, not next(self.parameters()).dtype: under nn.DataParallel,
+        # calling self.parameters() inside forward() on a replica raises
+        # "StopIteration: Caught StopIteration in replica N on device N" with current
+        # torch/transformers versions. sequence_output is a real tensor already in scope with
+        # the same dtype the model is actually computing in (also correct under autocast/fp16,
+        # unlike a hardcoded torch.float32).
+        extended_txt_mask = extended_txt_mask.to(dtype=sequence_output.dtype)
         extended_txt_mask = (1.0 - extended_txt_mask) * -10000.0
         aux_addon_sequence_encoder = self.self_attention(sequence_output, extended_txt_mask)
 
@@ -224,7 +230,7 @@ class UMT(RobertaPreTrainedModel):
         # apply txt2img attention mechanism to obtain image-based text representations
         img_mask = added_attention_mask[:,:49]
         extended_img_mask = img_mask.unsqueeze(1).unsqueeze(2)
-        extended_img_mask = extended_img_mask.to(dtype=next(self.parameters()).dtype) # fp16 compatibility
+        extended_img_mask = extended_img_mask.to(dtype=sequence_output.dtype)  # see note above
         extended_img_mask = (1.0 - extended_img_mask) * -10000.0
 
         cross_encoder = self.txt2img_attention(main_addon_sequence_output, converted_vis_embed_map, extended_img_mask)
