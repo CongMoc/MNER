@@ -236,7 +236,13 @@ elif n_gpu > 1:
     encoder = torch.nn.DataParallel(encoder)
 
 param_optimizer = list(model.named_parameters())
-no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+# alpha_logit (UMTBalanced's learned main/aux mix, a single scalar init to 0 -> sigmoid=0.5)
+# was falling into the weight_decay=0.01 group below like any ordinary weight matrix. Decay
+# continuously pulls a scalar toward 0 regardless of its gradient, and for a single parameter
+# with an already-weak/noisy gradient signal that's enough to pin it at init the whole run
+# (observed: sigmoid(alpha_logit) stuck at ~0.4999 for 12 epochs in news_results/umt_balanced
+# and news_results/umt_clip's gate_stats.jsonl) -- excluding it lets real gradient signal move it.
+no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight', 'alpha_logit']
 optimizer_grouped_parameters = [
     {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay) and 'crf' not in n],
      'weight_decay': 0.01},
