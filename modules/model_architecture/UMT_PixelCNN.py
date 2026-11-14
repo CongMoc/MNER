@@ -17,8 +17,13 @@ class UMT_PixelCNN(RobertaPreTrainedModel):
         self.auxnum_labels = auxnum_labels
         self.roberta = RobertaModel(config)
         #self.trans_matrix = torch.zeros(num_labels, auxnum_labels)
+        # h_dim defaults to 768 (BERT-base) in ImageDecoder/PixelCNNLayer_*/gated_resnet --
+        # must match config.hidden_size or the FiLM-style conditioning matmul inside
+        # gated_resnet (h @ self.hw) breaks for any backbone with a different hidden size
+        # (e.g. xlm-roberta-large's 1024): "mat1 and mat2 shapes cannot be multiplied".
         self.image_decoder = ImageDecoder(nr_resnet=5, nr_filters=80, nr_logistic_mix=10,
-                                 resnet_nonlinearity='concat_elu', input_channels=3)
+                                 resnet_nonlinearity='concat_elu', input_channels=3,
+                                 h_dim=config.hidden_size)
         self.self_attention = RobertaSelfEncoder(config)
         self.self_attention_v2 = RobertaSelfEncoder(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
